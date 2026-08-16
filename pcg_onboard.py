@@ -157,8 +157,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     args=ap.parse_args()
 
-    honcho_key=os.environ.get("HONCHO_API_KEY")
-    notion_key=os.environ.get("NOTION_API_KEY")
+    honcho_key=(os.environ.get("HONCHO_API_KEY") or "").strip()
+    notion_key=(os.environ.get("NOTION_API_KEY") or "").strip()
     if not honcho_key or not notion_key:
         log("ERROR: HONCHO_API_KEY and NOTION_API_KEY must be set (they're in the command Wes gave you).")
         sys.exit(2)
