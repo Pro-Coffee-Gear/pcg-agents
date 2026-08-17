@@ -110,6 +110,53 @@ def _prop_text(prop: dict[str, Any]) -> str:
     return ""
 
 
+def _prop_multi(prop: dict[str, Any]) -> list[str]:
+    return [x.get("name", "") for x in prop.get("multi_select", []) if x.get("name")]
+
+
+def approved_deliverables_from_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    items = []
+    for row in rows:
+        p = row.get("properties", {})
+        if _prop_text(p.get("Curation Status", {})) != "Approved":
+            continue
+        items.append({
+            "name": _prop_text(p.get("Name", {})),
+            "type": _prop_text(p.get("Type", {})),
+            "status": _prop_text(p.get("Status", {})),
+            "owner_email": _prop_text(p.get("Owner Email", {})),
+            "purpose": _prop_text(p.get("Business Purpose", {})),
+            "functions": _prop_multi(p.get("Functions", {})),
+            "audience": _prop_text(p.get("Audience", {})),
+            "visibility": _prop_text(p.get("Visibility", {})),
+            "schedule": _prop_text(p.get("Schedule", {})),
+            "url": _prop_text(p.get("Artifact URL", {})),
+            "source_repo": _prop_text(p.get("Source Repository", {})),
+            "scripts": _prop_text(p.get("Scripts", {})),
+            "jobs": _prop_text(p.get("Jobs", {})),
+            "repair_policy": _prop_text(p.get("Repair Policy", {})),
+            "test_command": _prop_text(p.get("Test Command", {})),
+            "deployment_method": _prop_text(p.get("Deployment Method", {})),
+            "rollback_method": _prop_text(p.get("Rollback Method", {})),
+            "alert_target": _prop_text(p.get("Alert Target", {})),
+        })
+    return sorted(items, key=lambda x: (x.get("name", "").lower(), x.get("owner_email", "").lower()))
+
+
+def render_deliverables_toml(items: list[dict[str, Any]]) -> str:
+    keys = ("name", "type", "status", "owner_email", "purpose", "functions", "audience",
+            "visibility", "schedule", "url", "source_repo", "scripts", "jobs", "repair_policy",
+            "test_command", "deployment_method", "rollback_method", "alert_target")
+    lines = ["# GENERATED from Approved Notion deliverables. Review history in GitHub.", ""]
+    for item in sorted(items, key=lambda x: (x.get("name", "").lower(), x.get("owner_email", "").lower())):
+        lines.append("[[deliverable]]")
+        for key in keys:
+            value = item.get(key, [] if key == "functions" else "")
+            lines.append(f"{key} = {json.dumps(value, ensure_ascii=False)}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def script_row_to_incident(row: dict[str, Any]) -> dict[str, Any]:
     p = row.get("properties", {})
     return {
