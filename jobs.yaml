@@ -1,0 +1,10 @@
+# PCG fleet-managed scheduled jobs.
+# pcg_sync.py installs missing jobs on member boxes; existing jobs are not edited.
+
+- name: pcg-automation-health
+  schedule: every 15m
+  script: pcg-automation-health.py
+  deliver: all
+  scope: all
+  no_agent: true
+  workdir: /opt/data
