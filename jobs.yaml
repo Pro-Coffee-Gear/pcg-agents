@@ -1,6 +1,0 @@
-jobs:
-  - name: pcg-test-job
-    schedule: "0 9 * * *"
-    script: pcg_sync.py
-    deliver: local
-    scope: all
