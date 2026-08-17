@@ -8,3 +8,11 @@
   scope: all
   no_agent: true
   workdir: /opt/data
+
+- name: pcg-repair-notify
+  schedule: every 15m
+  script: pcg-repair-notify.py
+  deliver: all
+  scope: all
+  no_agent: true
+  workdir: /opt/data
