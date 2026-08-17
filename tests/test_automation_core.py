@@ -200,14 +200,17 @@ test_command = "python3 -m unittest"
         self.assertEqual("a.py", incident["name"])
         self.assertEqual("boom", incident["failure_detail"])
 
-    def test_owner_notification_only_returns_unseen_awaiting_approval(self):
+    def test_owner_notification_deduplicates_same_pr_across_instances(self):
         rows = [
-            {"row_id": "1", "owner_email": "wes@procoffeegear.com", "incident_status": "Awaiting Approval", "incident_key": "k1", "fix_pr": "https://github/pr/1", "name": "a.py"},
-            {"row_id": "2", "owner_email": "sina@procoffeegear.com", "incident_status": "Awaiting Approval", "incident_key": "k2", "fix_pr": "https://github/pr/2", "name": "b.py"},
+            {"row_id": "1", "owner_email": "wes@procoffeegear.com", "incident_status": "Awaiting Approval", "incident_key": "k1", "fix_pr": "https://github/pr/1", "name": "a.py", "instance": "box-a"},
+            {"row_id": "2", "owner_email": "wes@procoffeegear.com", "incident_status": "Awaiting Approval", "incident_key": "k2", "fix_pr": "https://github/pr/1", "name": "a.py", "instance": "box-b"},
+            {"row_id": "3", "owner_email": "sina@procoffeegear.com", "incident_status": "Awaiting Approval", "incident_key": "k3", "fix_pr": "https://github/pr/2", "name": "b.py", "instance": "box-c"},
         ]
         selected = select_owner_notifications(rows, "wes@procoffeegear.com", set())
-        self.assertEqual(["1"], [r["row_id"] for r in selected])
-        self.assertEqual([], select_owner_notifications(rows, "wes@procoffeegear.com", {"k1"}))
+        self.assertEqual(1, len(selected))
+        self.assertEqual(["box-a", "box-b"], selected[0]["instances"])
+        self.assertEqual("pr:https://github/pr/1", selected[0]["notification_marker"])
+        self.assertEqual([], select_owner_notifications(rows, "wes@procoffeegear.com", {"pr:https://github/pr/1"}))
 
     def test_groups_same_repair_across_instances(self):
         base = {"name": "a.py", "failure_detail": "SyntaxError line 4", "source_repo": "https://github.com/WWWPCG/pcg-agents", "health": "Failing", "repair_policy": "repair-pr", "incident_status": "Open", "fix_pr": ""}
