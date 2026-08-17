@@ -12,3 +12,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate skills + scripts
         run: python3 .github/lint.py
+      - name: Run automation governance tests
+        run: python3 -m unittest discover -s tests -v
