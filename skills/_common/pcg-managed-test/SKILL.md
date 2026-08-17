@@ -1,5 +1,5 @@
 ---
 name: pcg-managed-test
-description: v1
+description: v2
 ---
-v1
+v2
