@@ -180,11 +180,25 @@ def script_row_to_incident(row: dict[str, Any]) -> dict[str, Any]:
 
 def select_owner_notifications(rows: list[dict[str, Any]], owner_email: str,
                                seen_incidents: set[str]) -> list[dict[str, Any]]:
-    return [row for row in rows
-            if row.get("owner_email", "").lower() == owner_email.lower()
-            and row.get("incident_status") == "Awaiting Approval"
-            and row.get("fix_pr")
-            and row.get("incident_key") not in seen_incidents]
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        if row.get("owner_email", "").lower() != owner_email.lower():
+            continue
+        if row.get("incident_status") != "Awaiting Approval" or not row.get("fix_pr"):
+            continue
+        marker = "pr:" + row["fix_pr"]
+        if marker in seen_incidents:
+            continue
+        groups.setdefault(marker, []).append(row)
+    selected = []
+    for marker, members in sorted(groups.items()):
+        members = sorted(members, key=lambda x: (x.get("instance", ""), x.get("row_id", "")))
+        item = dict(members[0])
+        item["notification_marker"] = marker
+        item["instances"] = [m.get("instance", "") for m in members]
+        item["incident_keys"] = [m.get("incident_key", "") for m in members]
+        selected.append(item)
+    return selected
 
 
 def group_repair_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
