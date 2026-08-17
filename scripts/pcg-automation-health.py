@@ -483,6 +483,40 @@ def update_deliverables(ds_id: str, jobs: list[dict], deps: dict[str, tuple[bool
     return results
 
 
+def sync_links(deliverable_ds: str, script_ds: str) -> int:
+    """Keep Deliverables.Scripts <-> Registry.Deliverable links current.
+
+    Two signals, unioned: registry 'Supports' text matched to deliverable names,
+    and deliverable 'Script Paths' filenames matched to registry script names.
+    Idempotent — only PATCHes a deliverable whose link set actually changed.
+    Returns the number of deliverables updated.
+    """
+    delivs = {title_value(d): d for d in query_rows(deliverable_ds)}
+    scripts = {title_value(s): s for s in query_rows(script_ds)}
+    links: dict[str, set[str]] = {}
+    for sname, s in scripts.items():
+        sup = text_value(s.get("properties", {}).get("Supports", {}))
+        for dname in delivs:
+            if dname and dname in sup:
+                links.setdefault(dname, set()).add(sname)
+    for dname, d in delivs.items():
+        sp = text_value(d.get("properties", {}).get("Script Paths", {}))
+        for token in sp.replace(";", ",").split(","):
+            token = token.strip()
+            if token in scripts:
+                links.setdefault(dname, set()).add(token)
+    updated = 0
+    for dname, snames in links.items():
+        d = delivs[dname]
+        have_ids = {r["id"] for r in d.get("properties", {}).get("Scripts", {}).get("relation", [])}
+        want_ids = {scripts[s]["id"] for s in sorted(snames)}
+        if want_ids != have_ids:
+            notion(f"/pages/{d['id']}", "PATCH",
+                   {"properties": {"Scripts": {"relation": [{"id": i} for i in sorted(want_ids)]}}})
+            updated += 1
+    return updated
+
+
 def load_state() -> dict:
     try:
         return json.loads(STATE_FILE.read_text())
@@ -577,6 +611,7 @@ def main() -> int:
     for result in script_results:
         upsert_script(script_ds, script_rows, result, policies)
     if IS_CONTROL_PLANE:
+        sync_links(deliverable_ds, script_ds)
         deliverable_results = update_deliverables(deliverable_ds, jobs, deps)
     else:
         deliverable_results = {}
