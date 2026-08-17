@@ -1,5 +1,5 @@
 ---
 name: local-test
-description: v1
+description: v2
 ---
-v1
+v2
