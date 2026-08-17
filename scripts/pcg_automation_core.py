@@ -187,6 +187,25 @@ def select_owner_notifications(rows: list[dict[str, Any]], owner_email: str,
             and row.get("incident_key") not in seen_incidents]
 
 
+def group_repair_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for row in select_repair_candidates(rows):
+        normalized = normalize_failure(row.get("failure_detail", ""))
+        material = "|".join((row.get("source_repo", "").lower(), row.get("name", "").lower(), normalized))
+        group_key = hashlib.sha256(material.encode()).hexdigest()[:16]
+        groups.setdefault(group_key, []).append(row)
+    output = []
+    for group_key, members in sorted(groups.items()):
+        members = sorted(members, key=lambda x: (x.get("instance", ""), x.get("row_id", "")))
+        item = dict(members[0])
+        item["repair_group_key"] = group_key
+        item["row_ids"] = [m.get("row_id", "") for m in members]
+        item["instances"] = [m.get("instance", "") for m in members]
+        item["incident_keys"] = [m.get("incident_key", "") for m in members]
+        output.append(item)
+    return output
+
+
 def select_repair_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     selected = []
     for row in rows:
