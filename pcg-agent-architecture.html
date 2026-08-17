@@ -13,7 +13,7 @@
     .header { margin-bottom:1.4rem; }
     .header-row { display:flex; align-items:center; gap:.8rem; margin-bottom:.45rem; }
     .pulse-dot { width:11px; height:11px; border-radius:50%; background:var(--cyan); }
-    h1 { font-size:1.5rem; letter-spacing:-.025em; }
+    h1 { font-size:1.5rem; letter-spacing:-.025em; white-space:nowrap; }
     .subtitle { color:var(--muted); font-size:.82rem; margin-left:1.55rem; line-height:1.55; }
     .intro-grid,.cards { display:grid; grid-template-columns:repeat(4,1fr); gap:.8rem; margin:1.2rem 0; }
     .card { background:rgba(15,23,42,.72); border:1px solid var(--line); border-radius:.7rem; padding:1rem; }
@@ -44,6 +44,26 @@
     .appendix p { margin-bottom:.8rem; }
     .footer { text-align:center; margin-top:1.5rem; color:#475569; font-size:.68rem; }
     .pill { display:inline-block; border:1px solid #334155; color:#cbd5e1; border-radius:999px; padding:.1rem .42rem; font-size:.6rem; margin:.08rem; }
+    .exec-summary { margin-top:.8rem; break-after:page; page-break-after:always; }
+    .exec-kicker { color:var(--cyan); font-size:.66rem; font-weight:700; letter-spacing:.09em; margin-bottom:.45rem; }
+    .exec-summary h2 { color:white; font-size:1.28rem; line-height:1.25; letter-spacing:-.025em; max-width:1000px; margin-bottom:.55rem; }
+    .exec-thesis { color:#cbd5e1; font-size:.79rem; line-height:1.55; max-width:1080px; border-left:3px solid var(--violet); padding-left:.75rem; }
+    .why-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.72rem; margin-top:.8rem; }
+    .why-card { background:rgba(15,23,42,.72); border:1px solid var(--line); border-radius:.68rem; padding:.78rem; }
+    .why-card h3 { color:var(--text); font-size:.75rem; line-height:1.35; margin-bottom:.36rem; }
+    .why-card p { color:var(--muted); font-size:.62rem; line-height:1.48; }
+    .build-band { margin-top:.72rem; background:rgba(15,23,42,.58); border:1px solid var(--line); border-radius:.68rem; padding:.72rem .8rem; }
+    .build-band h3 { color:var(--amber); font-size:.7rem; margin-bottom:.48rem; }
+    .example-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:.4rem .75rem; }
+    .example { color:var(--muted); font-size:.58rem; line-height:1.42; }
+    .example strong { color:var(--text); }
+    .compound-row { display:grid; grid-template-columns:1.65fr 1fr; gap:.72rem; margin-top:.72rem; }
+    .compound-box,.guardrail-box { border-radius:.68rem; padding:.7rem .8rem; }
+    .compound-box { background:rgba(76,29,149,.22); border:1px solid #6d4bb8; }
+    .guardrail-box { background:rgba(8,51,68,.28); border:1px solid #155e75; }
+    .compound-box h3,.guardrail-box h3 { color:var(--text); font-size:.7rem; margin-bottom:.3rem; }
+    .compound-box p,.guardrail-box p { color:var(--muted); font-size:.6rem; line-height:1.45; }
+    .exec-close { color:white; font-size:.72rem; line-height:1.45; font-weight:600; margin-top:.68rem; text-align:center; }
     @page { size:A4 landscape; margin:1cm; }
     @media print {
       body { padding:.35rem; }
@@ -52,6 +72,9 @@
       h1 { font-size:1.1rem; }
       .subtitle { font-size:.65rem; }
       .intro-grid { display:none; }
+      .exec-summary { margin-top:.45rem; }
+      .exec-summary h2 { font-size:1.12rem; }
+      .exec-thesis { font-size:.7rem; }
       .diagram-section { break-before:page; page-break-before:always; margin-top:0; }
       .diagram-section.first { break-before:auto; page-break-before:auto; }
       .diagram-container { padding:.45rem; break-inside:avoid; page-break-inside:avoid; }
@@ -72,6 +95,53 @@
     <div class="header-row"><div class="pulse-dot"></div><h1>Pro Coffee Gear — Agent System Guide</h1></div>
     <p class="subtitle">Four separate views of the system: how knowledge moves, how people are onboarded, how skills/scripts/tools are shared, and how the fleet is routed and monitored.</p>
   </header>
+
+  <!-- ================= EXECUTIVE SUMMARY ================= -->
+  <section class="exec-summary">
+    <div class="exec-kicker">EXECUTIVE SUMMARY · WHY THIS MATTERS</div>
+    <h2>Turn what Pro Coffee Gear learns into systems the whole company can reuse</h2>
+    <p class="exec-thesis">PCG already produces valuable knowledge every day: why a return happened, which vendor issue keeps recurring, what customers object to, where margin leaks, and which manual process slows a team down. Today, much of that knowledge lives in individual heads, scattered conversations, or one-off fixes. This architecture gives each function a persistent memory and the ability to turn what it learns into working tools, while keeping human ownership, permissions, source code, and health visible.</p>
+
+    <div class="why-grid">
+      <article class="why-card">
+        <h3><span class="card-dot" style="background:var(--violet)"></span>Institutional knowledge becomes usable</h3>
+        <p>Honcho gives the function a shared memory of PCG's rules, systems, exceptions, prior decisions, and recurring failure patterns. A new project starts with accumulated context instead of a blank chat. A new teammate can inherit the team's operating knowledge while each contributor remains identifiable and raw chats are not copied into a shared feed.</p>
+      </article>
+      <article class="why-card">
+        <h3><span class="card-dot" style="background:var(--amber)"></span>The distance from problem to tool shrinks</h3>
+        <p>Hermes gives each teammate a private builder that can help diagnose a problem, draft the workflow, write the script, build the dashboard, test it, and prepare it for deployment. GitHub preserves the source and rollback path. Cloudflare can publish approved tools at a live URL. Notion records the owner, audience, status, and health.</p>
+      </article>
+      <article class="why-card">
+        <h3><span class="card-dot" style="background:var(--green)"></span>Improvements compound across the company</h3>
+        <p>Each useful conversation improves the function brain. Successful skills and scripts can be published for the next eligible teammate. Material lessons can reach LT through summaries instead of raw-chat replication. The next person starts from the last person's progress, so PCG keeps more of the value created by every investigation, decision, and build.</p>
+      </article>
+    </div>
+
+    <div class="build-band">
+      <h3>What this makes practical</h3>
+      <div class="example-grid">
+        <div class="example"><strong>Customer service:</strong> Front triage and drafting workflows that detect repeat complaints, assemble case context, and connect issues to products or vendors.</div>
+        <div class="example"><strong>Operations:</strong> Airtable-fed returns and open-box tools, vendor-claim aging, inventory exceptions, SOP checks, and escalation alerts.</div>
+        <div class="example"><strong>Sales:</strong> quote follow-up, lead prioritization, product recommendations, and analysis of objections or lost deals.</div>
+        <div class="example"><strong>Merch and Growth:</strong> pricing and margin monitors, vendor comparisons, campaign tools, and content based on real customer questions.</div>
+        <div class="example"><strong>Finance:</strong> reconciliation support, payment and margin exceptions, cash visibility, and recurring control checks.</div>
+        <div class="example"><strong>Leadership:</strong> Notion control boards and a daily view of material changes, decisions needed, operating risk, and opportunities that span functions.</div>
+      </div>
+    </div>
+
+    <div class="compound-row">
+      <div class="compound-box">
+        <h3>The compounding loop</h3>
+        <p>Work creates conversations. Conversations create memory. Memory improves the next diagnosis and build. Approved builds become versioned tools. Their results create new evidence; when the team reviews that evidence with the agent, the lesson enters memory and improves the next cycle. PCG's own operating history becomes part of how future work gets done.</p>
+      </div>
+      <div class="guardrail-box">
+        <h3>Builder capacity with clear ownership</h3>
+        <p>Agents do not replace function owners or approve critical changes. They give owners better memory and more building capacity. Permissions control who receives each profile; Git records changes; Notion makes ownership visible; monitoring verifies whether shared systems are actually working.</p>
+      </div>
+    </div>
+
+    <p class="exec-close">The durable advantage is a company that gets better at turning what it learns into tools, and keeps those gains when the next problem, project, or teammate arrives.</p>
+  </section>
 
   <div class="intro-grid">
     <div class="card"><h3><span class="card-dot" style="background:var(--violet)"></span>1 · Data flow</h3><p>Knowledge, function memory, LT summaries, source code, and live applications.</p></div>
@@ -634,7 +704,7 @@
     <p><strong>What if onboarding shows ⚠️ Mismatch?</strong><br>Compare Requested versus Active Profiles in the roster. Do not repeatedly rerun onboarding; send the mismatch detail to the system owner so the failed step can be diagnosed.</p>
   </section>
 
-  <p class="footer">Pro Coffee Gear • Agent System Guide • v2.2 • Source of truth: private pcg-agents repo + Notion control boards</p>
+  <p class="footer">Pro Coffee Gear • Agent System Guide • v2.3 • Source of truth: private pcg-agents repo + Notion control boards</p>
 </div>
 </body>
 </html>
