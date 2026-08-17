@@ -37,6 +37,8 @@
     .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
     .card li { margin-bottom: 0.375rem; }
     .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+    .appendix p { margin-bottom: 0.9rem; }
+    .appendix h2 { margin-top: 1.5rem; }
     /* Print/PDF: landscape so the wide diagram fits unclipped */
     @page { size: A4 landscape; margin: 1.2cm; }
     @media print {
@@ -103,6 +105,10 @@
         <!-- Central box -> Honcho -->
         <line x1="700" y1="330" x2="610" y2="396" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah-violet)"/>
         <text x="660" y="372" fill="#a78bfa" font-size="8">shared brain</text>
+
+        <!-- Central box -> Cloudflare (deploy) -->
+        <line x1="800" y1="330" x2="800" y2="396" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)"/>
+        <text x="812" y="366" fill="#fbbf24" font-size="8">deploy</text>
 
         <!-- LEFT COLUMN -->
         <rect x="20" y="90" width="110" height="60" rx="6" fill="#0f172a"/>
@@ -224,6 +230,16 @@
         <text x="185" y="556" fill="#a78bfa" font-size="8">the smarter every agent in the company gets</text>
         <text x="185" y="576" fill="#94a3b8" font-size="7">powers: bridges · LT digest · onboarding memory</text>
 
+        <!-- CLOUDFLARE (deploy target, right-bottom) -->
+        <rect x="640" y="400" width="340" height="120" rx="6" fill="#0f172a"/>
+        <rect x="640" y="400" width="340" height="120" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="810" y="424" fill="white" font-size="11" font-weight="600" text-anchor="middle">Cloudflare Workers — apps go live</text>
+        <text x="810" y="438" fill="#94a3b8" font-size="8" text-anchor="middle">the deployment layer</text>
+        <text x="655" y="458" fill="#94a3b8" font-size="7">• agents build → git → one-command deploy</text>
+        <text x="655" y="472" fill="#94a3b8" font-size="7">• e.g. open-box-dashboard (returns tool)</text>
+        <text x="655" y="486" fill="#94a3b8" font-size="7">• reads live data from Airtable</text>
+        <text x="655" y="506" fill="#fbbf24" font-size="7">edge network — fast, cheap, no servers to run</text>
+
         <!-- LEGEND (below all boundaries) -->
         <text x="170" y="662" fill="white" font-size="10" font-weight="600">Legend</text>
         <rect x="170" y="674" width="16" height="10" rx="2" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1"/>
@@ -233,7 +249,7 @@
         <rect x="170" y="710" width="16" height="10" rx="2" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1"/>
         <text x="192" y="718" fill="#94a3b8" font-size="8">Shared memory (Honcho)</text>
         <rect x="380" y="674" width="16" height="10" rx="2" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1"/>
-        <text x="402" y="682" fill="#94a3b8" font-size="8">External SaaS (Notion / GitHub)</text>
+        <text x="402" y="682" fill="#94a3b8" font-size="8">External SaaS (Notion / GitHub / Cloudflare)</text>
         <rect x="380" y="692" width="16" height="10" rx="2" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1"/>
         <text x="402" y="700" fill="#94a3b8" font-size="8">Automation (onboard / bridges)</text>
         <rect x="380" y="710" width="16" height="10" rx="2" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1"/>
@@ -280,6 +296,7 @@
       <h2><span class="dot" style="background:#fbbf24"></span>How it's visible, shared, and learned from</h2>
       <ul>
         <li><strong>Everything built lands in git.</strong> Code, dashboards, and tools an agent creates live in versioned repos the whole team can inspect, reuse, and improve. Nothing is trapped inside one person's chat history, and nothing locks us to one vendor.</li>
+        <li><strong>Apps go live on Cloudflare.</strong> When an agent builds something people should actually use — like the returns dashboard — it deploys to Cloudflare Workers and gets a real URL anyone on the team can open. No servers to run, no deploy ceremony.</li>
         <li><strong>Function knowledge is inherited.</strong> When someone new joins your function, they plug into the same shared brain on day one — they start where the function is, not from zero.</li>
         <li><strong>Wins propagate sideways.</strong> The bridges push one function's learnings to the functions that need them, so a discovery in CS becomes a fix in Product without anyone playing telephone.</li>
         <li><strong>Onboarding is self-verifying.</strong> The roster in Notion shows each person's status: <em>Function</em> = what they should have, <em>Active Profiles</em> = what's actually live, and <em>✅ Match / ⚠️ Mismatch</em> tells us instantly if something's off.</li>
@@ -310,11 +327,72 @@
         <div class="card-header"><div class="card-dot amber"></div><h3>Sharing & learning</h3></div>
         <ul>
           <li>• Built things → git repos (inspectable, reusable)</li>
+          <li>• Live apps → Cloudflare URLs anyone can open</li>
           <li>• Function knowledge → shared brain (inherited)</li>
           <li>• Learnings → bridges to other functions</li>
           <li>• Big picture → LT digest for leadership</li>
         </ul>
       </div>
+    </div>
+
+    <!-- ================= APPENDIX ================= -->
+    <div class="brief appendix" style="page-break-before: always;">
+
+      <h2><span class="dot" style="background:#94a3b8"></span>Appendix A — Definitions</h2>
+      <ul>
+        <li><strong>Hermes</strong> — the agent platform itself. The app you actually talk to and work in.</li>
+        <li><strong>Instance (your "box")</strong> — your own private Hermes server. Only you can log into it; nobody else can see inside.</li>
+        <li><strong>Profile</strong> — one agent identity on a box, with its own memory, tools, and role. You switch profiles bottom-right of the app.</li>
+        <li><strong>LT profile</strong> — the shared leadership view: company-wide digest and org context. Every team member carries it.</li>
+        <li><strong>Function profile</strong> — the agent for your team (Operations, CS, Sales…). A full builder: terminal, code, deploy.</li>
+        <li><strong>Honcho</strong> — the shared memory layer ("the brain"). Lives in the cloud, independent of any box, so knowledge survives restarts and migrations.</li>
+        <li><strong>Workspace</strong> — our container inside Honcho: <em>procoffeegear</em>. All of our peers live here.</li>
+        <li><strong>Peer</strong> — an identity in Honcho. An <em>AI peer</em> is a function's brain (shared); a <em>human peer</em> is you (personal).</li>
+        <li><strong>Shared brain</strong> — the one AI peer per function. Everyone in a function reads and writes the same memory.</li>
+        <li><strong>Standing context</strong> — authored knowledge loaded every session (comes from your function's Notion intake doc).</li>
+        <li><strong>Learned memory</strong> — what the brain picks up from real conversations over time.</li>
+        <li><strong>Bridge</strong> — a daily, one-way sync that pushes relevant findings from one function's brain to another (e.g. CS → Product).</li>
+        <li><strong>Nous Portal</strong> — where seats, billing, and invites are managed. Your invite = your box.</li>
+        <li><strong>Roster</strong> — the control-plane table in Notion: who gets which functions, plus onboarding verification.</li>
+        <li><strong>Sync Status</strong> — the roster check comparing what you should have vs. what's actually live. ✅ Match = good; ⚠️ Mismatch = tell Wes.</li>
+        <li><strong>Onboard command</strong> — the one-line setup command that wires a new box to everything and self-verifies.</li>
+        <li><strong>Git / GitHub</strong> — version control. Everything agents build lands here: visible, reusable, no lock-in.</li>
+        <li><strong>Cloudflare Workers</strong> — where built apps go live on the internet (e.g. the returns dashboard). Fast, cheap, no servers.</li>
+        <li><strong>Vendor lock-in</strong> — being stuck with one supplier because leaving is expensive. This stack is designed to avoid it.</li>
+      </ul>
+
+      <h2><span class="dot" style="background:#fb7185"></span>Appendix B — FAQ</h2>
+
+      <p><strong>Is my box private?</strong><br>
+      Yes. Your instance is yours alone — nobody else can open it, including Wes. What <em>is</em> shared: work done through your function profile feeds the function's brain, and leadership sees digest-level summaries through LT — never your raw chats.</p>
+
+      <p><strong>Do I need to know how to code?</strong><br>
+      No. Ask in plain English. The agent writes and runs the code; you review the result and steer.</p>
+
+      <p><strong>What's the difference between my function profile and LT?</strong><br>
+      Your function profile is your team's deep expert with full tools. LT is the shared leadership window onto the whole company. Switch between them bottom-right.</p>
+
+      <p><strong>Can I peek at another function's agent?</strong><br>
+      Your box only carries the profiles for your spaces. But you don't lose out — relevant knowledge from other functions reaches your brain automatically through the bridges.</p>
+
+      <p><strong>What if the agent gets something wrong?</strong><br>
+      Tell it, plainly. Corrections become permanent function memory — you fix it once, for everyone, forever.</p>
+
+      <p><strong>Where does the stuff I build end up?</strong><br>
+      Code and tools land in git repos the team can inspect and reuse. Anything worth using daily gets deployed to Cloudflare with a URL anyone can open.</p>
+
+      <p><strong>My roster row shows ⚠️ Mismatch after onboarding. Now what?</strong><br>
+      Don't retry the command. Take a screenshot of your row and send it to Wes — a mismatch means something specific failed and he'll fix it.</p>
+
+      <p><strong>Who pays for this?</strong><br>
+      The company. Your seat is covered under the team plan — you'll never see a bill.</p>
+
+      <p><strong>Does our company data train public AI models?</strong><br>
+      Our memory lives in our own private Honcho workspace, and our code in private repos. We deliberately chose a stack we control — that's the anti-lock-in design.</p>
+
+      <p><strong>What happens when someone changes roles or leaves?</strong><br>
+      Their roster row gets updated and their box is rewired or retired. The function brain keeps everything the function learned — knowledge stays with the company, not the person.</p>
+
     </div>
 
     <p class="footer">Pro Coffee Gear • Agent Architecture • v1.0 • Questions → Wes</p>
