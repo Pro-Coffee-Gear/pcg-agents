@@ -72,6 +72,16 @@ rollback_method = "Revert the PR and rerun the previous registry version"
 alert_target = "wes@procoffeegear.com"
 
 [[script]]
+name = "pcg-deliverable-reconcile.py"
+owner_email = "wes@procoffeegear.com"
+source_repo = "https://github.com/WWWPCG/pcg-agents"
+repair_policy = "repair-pr"
+test_command = "python3 -m unittest discover -s tests -v"
+deployment_method = "Exec control-plane no-agent cron"
+rollback_method = "Pause the reconcile cron and revert the PR"
+alert_target = "wes@procoffeegear.com"
+
+[[script]]
 name = "pcg_sync.py"
 owner_email = "wes@procoffeegear.com"
 source_repo = "https://github.com/WWWPCG/pcg-agents"
