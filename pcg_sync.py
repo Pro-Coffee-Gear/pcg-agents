@@ -216,8 +216,10 @@ def parse_jobs_yaml(text):
                     cur["scope"] = [s.strip().strip('"') for s in v.strip("[]").split(",") if s.strip()]
                 else:
                     cur["scope"] = v
-            elif k in ("schedule", "script", "deliver"):
+            elif k in ("schedule", "script", "deliver", "workdir"):
                 cur[k] = v
+            elif k == "no_agent":
+                cur[k] = v.lower() in ("true", "yes", "1")
     if cur:
         jobs.append(cur)
     return jobs
@@ -247,10 +249,15 @@ def reconcile_jobs(token, held_labels, changes):
                 continue
         if name in existing:
             continue
+        cmd = [HERMES_BIN, "cron", "create", job["schedule"],
+               "--name", name, "--script", os.path.basename(job["script"]),
+               "--deliver", job.get("deliver", "local")]
+        if job.get("no_agent"):
+            cmd.append("--no-agent")
+        if job.get("workdir"):
+            cmd.extend(["--workdir", job["workdir"]])
         r = subprocess.run(
-            [HERMES_BIN, "cron", "create", job["schedule"],
-             "--name", name, "--script", os.path.basename(job["script"]),
-             "--deliver", job.get("deliver", "local")],
+            cmd,
             capture_output=True, text=True,
             env={**os.environ, "HERMES_HOME": HERMES_HOME})
         if r.returncode == 0:
