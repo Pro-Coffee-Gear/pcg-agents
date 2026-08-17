@@ -530,10 +530,12 @@ def install_fleet_sync(dry):
         log("  ! no GitHub token in .env — skipping fleet-sync install")
         return
 
-    # Fetch pcg_sync.py from the private repo (Contents API, raw accept)
+    # Fetch pcg_sync.py from the private repo (Contents API, raw accept).
+    # Canonical home is scripts/ in the repo — after install, the 30-min fleet
+    # sync itself keeps this file (and profile_sync.py) current forever.
     os.makedirs(scripts_dir, exist_ok=True)
     req = urllib.request.Request(
-        "https://api.github.com/repos/WWWPCG/pcg-agents/contents/pcg_sync.py",
+        "https://api.github.com/repos/WWWPCG/pcg-agents/contents/scripts/pcg_sync.py",
         headers={"Authorization": f"token {gh_token}",
                  "Accept": "application/vnd.github.raw"})
     try:
