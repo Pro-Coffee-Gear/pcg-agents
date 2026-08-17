@@ -3,399 +3,625 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pro Coffee Gear — Agent Architecture</title>
+  <title>Pro Coffee Gear — Agent System Guide</title>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: 'JetBrains Mono', monospace; background: #020617; min-height: 100vh; padding: 2rem; color: white; }
-    .container { max-width: 1200px; margin: 0 auto; }
-    .header { margin-bottom: 2rem; }
-    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
-    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
-    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
-    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
-    .diagram-container { background: rgba(15,23,42,0.5); border-radius: 1rem; border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto; }
-    svg { width: 100%; min-width: 900px; display: block; }
-    .brief { margin-top: 2rem; }
-    .brief h2 { font-size: 1rem; font-weight: 700; color: #e2e8f0; margin: 1.75rem 0 0.6rem; display: flex; align-items: center; gap: 0.6rem; }
-    .brief h2 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .brief p, .brief li { color: #94a3b8; font-size: 0.8rem; line-height: 1.65; }
-    .brief ul { list-style: none; margin-left: 0.25rem; }
-    .brief li { margin-bottom: 0.45rem; padding-left: 1.1rem; position: relative; }
-    .brief li::before { content: "▸"; position: absolute; left: 0; color: #22d3ee; }
-    .brief strong { color: #e2e8f0; }
-    .brief em { color: #cbd5e1; font-style: normal; border-bottom: 1px dashed #475569; }
-    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem; }
-    .card { background: rgba(15,23,42,0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
-    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
-    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
-    .card-dot.cyan { background: #22d3ee; } .card-dot.emerald { background: #34d399; }
-    .card-dot.violet { background: #a78bfa; } .card-dot.amber { background: #fbbf24; }
-    .card-dot.rose { background: #fb7185; } .card-dot.orange { background: #fb923c; }
-    .card h3 { font-size: 0.875rem; font-weight: 600; }
-    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
-    .card li { margin-bottom: 0.375rem; }
-    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
-    .appendix p { margin-bottom: 0.9rem; }
-    .appendix h2 { margin-top: 1.5rem; }
-    /* Print/PDF: landscape so the wide diagram fits unclipped */
-    @page { size: A4 landscape; margin: 1.2cm; }
+    :root { --bg:#020617; --panel:#0f172a; --line:#1e293b; --text:#e2e8f0; --muted:#94a3b8; --cyan:#22d3ee; --green:#34d399; --violet:#a78bfa; --amber:#fbbf24; --orange:#fb923c; --rose:#fb7185; }
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'JetBrains Mono',monospace; background:var(--bg); color:white; padding:2rem; }
+    .container { max-width:1200px; margin:0 auto; }
+    .header { margin-bottom:1.4rem; }
+    .header-row { display:flex; align-items:center; gap:.8rem; margin-bottom:.45rem; }
+    .pulse-dot { width:11px; height:11px; border-radius:50%; background:var(--cyan); }
+    h1 { font-size:1.5rem; letter-spacing:-.025em; }
+    .subtitle { color:var(--muted); font-size:.82rem; margin-left:1.55rem; line-height:1.55; }
+    .intro-grid,.cards { display:grid; grid-template-columns:repeat(4,1fr); gap:.8rem; margin:1.2rem 0; }
+    .card { background:rgba(15,23,42,.72); border:1px solid var(--line); border-radius:.7rem; padding:1rem; }
+    .card h3 { font-size:.78rem; margin-bottom:.55rem; }
+    .card p,.card li { color:var(--muted); font-size:.67rem; line-height:1.55; }
+    .card ul { list-style:none; }
+    .card li { margin-bottom:.25rem; }
+    .card-dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:.4rem; }
+    .diagram-section { margin-top:2rem; }
+    .section-title { display:flex; align-items:center; gap:.6rem; font-size:1rem; color:var(--text); margin-bottom:.4rem; }
+    .section-title .dot { width:8px; height:8px; border-radius:50%; }
+    .section-subtitle { color:var(--muted); font-size:.72rem; line-height:1.55; margin-bottom:.7rem; }
+    .diagram-container { background:rgba(15,23,42,.5); border:1px solid var(--line); border-radius:1rem; padding:1rem; overflow-x:auto; }
+    svg { width:100%; min-width:920px; display:block; }
+    .notes { display:grid; grid-template-columns:repeat(3,1fr); gap:.7rem; margin-top:.7rem; }
+    .note { border:1px solid var(--line); background:rgba(15,23,42,.55); border-radius:.55rem; padding:.7rem; color:var(--muted); font-size:.65rem; line-height:1.5; }
+    .note strong { color:var(--text); }
+    .brief { margin-top:2rem; }
+    .brief h2 { display:flex; align-items:center; gap:.55rem; font-size:.95rem; margin:1.4rem 0 .55rem; color:var(--text); }
+    .brief h2 .dot { width:8px; height:8px; border-radius:50%; flex:none; }
+    .brief h3 { color:var(--text); font-size:.8rem; margin:1rem 0 .35rem; }
+    .brief p,.brief li { color:var(--muted); font-size:.73rem; line-height:1.65; }
+    .brief ul { list-style:none; }
+    .brief li { position:relative; padding-left:1rem; margin-bottom:.38rem; }
+    .brief li::before { content:'▸'; position:absolute; left:0; color:var(--cyan); }
+    .brief strong { color:var(--text); }
+    .brief em { color:#cbd5e1; font-style:normal; border-bottom:1px dashed #475569; }
+    .appendix p { margin-bottom:.8rem; }
+    .footer { text-align:center; margin-top:1.5rem; color:#475569; font-size:.68rem; }
+    .pill { display:inline-block; border:1px solid #334155; color:#cbd5e1; border-radius:999px; padding:.1rem .42rem; font-size:.6rem; margin:.08rem; }
+    @page { size:A4 landscape; margin:1cm; }
     @media print {
-      body { padding: 0.5rem; }
-      .container { max-width: none; }
-      .header { margin-bottom: 0.5rem; }
-      .header h1 { font-size: 1.1rem; }
-      .subtitle { font-size: 0.7rem; }
-      .diagram-container { padding: 0.5rem; overflow: visible; break-inside: avoid; page-break-inside: avoid; }
-      svg { min-width: 0; width: auto; height: 540px; margin: 0 auto; }
-      .brief { page-break-before: always; }
+      body { padding:.35rem; }
+      .container { max-width:none; }
+      .header { margin-bottom:.6rem; }
+      h1 { font-size:1.1rem; }
+      .subtitle { font-size:.65rem; }
+      .intro-grid { display:none; }
+      .diagram-section { break-before:page; page-break-before:always; margin-top:0; }
+      .diagram-section.first { break-before:auto; page-break-before:auto; }
+      .diagram-container { padding:.45rem; break-inside:avoid; page-break-inside:avoid; }
+      .diagram-section svg { width:auto; min-width:0; height:420px; margin:0 auto; }
+      .notes { margin-top:.4rem; }
+      .note { font-size:.58rem; padding:.45rem; }
+      .brief { break-before:page; page-break-before:always; margin-top:0; }
+      .appendix p, .appendix li { font-size:.63rem; line-height:1.42; }
+      .appendix p { margin-bottom:.5rem; }
+      .appendix h2 { margin-top:.8rem; margin-bottom:.4rem; }
+      .cards { grid-template-columns:repeat(3,1fr); }
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <div class="header-row">
-        <div class="pulse-dot"></div>
-        <h1>Pro Coffee Gear — Agent Architecture</h1>
-      </div>
-      <p class="subtitle">How our AI agents are organized: one instance per person, one shared brain per function, everything in git.</p>
-    </div>
+<div class="container">
+  <header class="header">
+    <div class="header-row"><div class="pulse-dot"></div><h1>Pro Coffee Gear — Agent System Guide</h1></div>
+    <p class="subtitle">Four separate views of the system: how knowledge moves, how people are onboarded, how skills/scripts/tools are shared, and how the fleet is routed and monitored.</p>
+  </header>
 
+  <div class="intro-grid">
+    <div class="card"><h3><span class="card-dot" style="background:var(--violet)"></span>1 · Data flow</h3><p>Knowledge, function memory, LT summaries, source code, and live applications.</p></div>
+    <div class="card"><h3><span class="card-dot" style="background:var(--rose)"></span>2 · Onboarding</h3><p>The different profile setup for a regular functional member versus an LT member.</p></div>
+    <div class="card"><h3><span class="card-dot" style="background:var(--amber)"></span>3 · Asset sharing</h3><p>How common skills, function skills, scripts, jobs, and business tools reach the right people.</p></div>
+    <div class="card"><h3><span class="card-dot" style="background:var(--green)"></span>4 · State & health</h3><p>Who owns what, which teams it supports, whether it works, and what happens when it breaks.</p></div>
+  </div>
+
+  <!-- ================= DATA FLOW ================= -->
+  <section class="diagram-section first">
+    <h2 class="section-title"><span class="dot" style="background:var(--violet)"></span>Diagram 1 — Data flow after onboarding</h2>
+    <p class="section-subtitle">This diagram intentionally excludes onboarding. It shows the steady-state movement of knowledge and built work.</p>
     <div class="diagram-container">
-      <svg viewBox="0 0 1000 760">
+      <svg viewBox="0 0 1100 650" aria-label="PCG data flow diagram">
         <defs>
-          <marker id="ah-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8"/></marker>
-          <marker id="ah-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa"/></marker>
-          <marker id="ah-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24"/></marker>
-          <marker id="ah-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fb7185"/></marker>
-          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
-          </pattern>
+          <marker id="d1-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#94a3b8"/></marker>
+          <marker id="d1-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#a78bfa"/></marker>
+          <marker id="d1-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/></marker>
+          <marker id="d1-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#34d399"/></marker>
+          <pattern id="grid1" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
         </defs>
+        <rect width="100%" height="100%" fill="url(#grid1)"/>
+        <text x="35" y="35" fill="#a78bfa" font-size="11" font-weight="700">KNOWLEDGE FLOW</text>
+        <text x="35" y="415" fill="#fbbf24" font-size="11" font-weight="700">WORK-PRODUCT FLOW</text>
 
-        <rect width="100%" height="100%" fill="url(#grid)" />
+        <!-- arrows first -->
+        <line x1="205" y1="120" x2="270" y2="120" stroke="#fbbf24" stroke-width="2" marker-end="url(#d1-amber)"/>
+        <line x1="205" y1="280" x2="270" y2="280" stroke="#fbbf24" stroke-width="2" marker-end="url(#d1-amber)"/>
+        <line x1="480" y1="120" x2="550" y2="150" stroke="#a78bfa" stroke-width="2" marker-end="url(#d1-violet)"/>
+        <line x1="550" y1="190" x2="480" y2="150" stroke="#a78bfa" stroke-width="2" marker-end="url(#d1-violet)"/>
+        <line x1="480" y1="280" x2="550" y2="235" stroke="#a78bfa" stroke-width="2" marker-end="url(#d1-violet)"/>
+        <line x1="550" y1="270" x2="480" y2="310" stroke="#a78bfa" stroke-width="2" marker-end="url(#d1-violet)"/>
+        <line x1="790" y1="220" x2="835" y2="220" stroke="#fb923c" stroke-width="2" marker-end="url(#d1-slate)"/>
+        <line x1="935" y1="265" x2="935" y2="330" stroke="#a78bfa" stroke-width="2" marker-end="url(#d1-violet)"/>
+        <line x1="375" y1="355" x2="375" y2="445" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#d1-slate)"/>
+        <line x1="210" y1="500" x2="300" y2="500" stroke="#fbbf24" stroke-width="2" marker-end="url(#d1-amber)"/>
+        <line x1="500" y1="500" x2="590" y2="500" stroke="#fbbf24" stroke-width="2" marker-end="url(#d1-amber)"/>
+        <line x1="790" y1="500" x2="870" y2="500" stroke="#34d399" stroke-width="2" marker-end="url(#d1-green)"/>
+        <line x1="400" y1="550" x2="400" y2="600" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#d1-slate)"/>
+        <line x1="690" y1="550" x2="690" y2="600" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#d1-slate)"/>
 
-        <!-- Region boundaries (drawn first, behind boxes) -->
-        <rect x="170" y="60" width="340" height="270" rx="12" fill="rgba(8,51,68,0.06)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="182" y="80" fill="#22d3ee" font-size="10" font-weight="600">YOUR HERMES INSTANCE — one per person</text>
+        <!-- source -->
+        <rect x="35" y="75" width="170" height="90" rx="7" fill="#0f172a"/><rect x="35" y="75" width="170" height="90" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="120" y="100" fill="white" font-size="11" font-weight="600" text-anchor="middle">Notion intake docs</text>
+        <text x="120" y="119" fill="#94a3b8" font-size="8" text-anchor="middle">standing context</text>
+        <text x="120" y="136" fill="#94a3b8" font-size="7" text-anchor="middle">vendors · rules · systems</text>
+        <text x="120" y="150" fill="#94a3b8" font-size="7" text-anchor="middle">known issues · guardrails</text>
 
-        <rect x="560" y="60" width="420" height="270" rx="12" fill="rgba(6,78,59,0.06)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="572" y="80" fill="#34d399" font-size="10" font-weight="600">CENTRAL BOX — runs all 7 function agents + bridges</text>
+        <rect x="35" y="235" width="170" height="90" rx="7" fill="#0f172a"/><rect x="35" y="235" width="170" height="90" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="120" y="260" fill="white" font-size="11" font-weight="600" text-anchor="middle">Function context feed</text>
+        <text x="120" y="279" fill="#94a3b8" font-size="8" text-anchor="middle">live Notion docs</text>
+        <text x="120" y="296" fill="#94a3b8" font-size="7" text-anchor="middle">refreshed into the agent</text>
+        <text x="120" y="310" fill="#94a3b8" font-size="7" text-anchor="middle">as authored knowledge</text>
 
-        <!-- ARROWS (behind component boxes) -->
-        <!-- Users -> Portal -->
-        <line x1="75" y1="150" x2="75" y2="188" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#ah-rose)"/>
-        <text x="86" y="172" fill="#fb7185" font-size="8">invite</text>
-        <!-- Portal -> Member instance -->
-        <line x1="130" y1="225" x2="166" y2="225" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#ah-rose)"/>
-        <text x="148" y="215" fill="#fb7185" font-size="8" text-anchor="middle">your seat</text>
-        <!-- Notion -> member instance -->
-        <line x1="130" y1="378" x2="166" y2="252" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)"/>
-        <text x="108" y="315" fill="#fbbf24" font-size="8" text-anchor="middle">roster drives</text>
-        <text x="108" y="327" fill="#fbbf24" font-size="8" text-anchor="middle">onboarding</text>
-        <!-- GitHub -> member instance -->
-        <line x1="130" y1="512" x2="166" y2="292" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)"/>
-        <text x="118" y="430" fill="#fbbf24" font-size="8" text-anchor="middle">curl scripts</text>
-        <!-- Member profiles -> Honcho -->
-        <line x1="260" y1="155" x2="260" y2="396" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah-violet)"/>
-        <line x1="420" y1="155" x2="420" y2="396" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah-violet)"/>
-        <text x="340" y="265" fill="#a78bfa" font-size="8" text-anchor="middle">memory read / write</text>
-        <!-- Central box -> Honcho -->
-        <line x1="700" y1="330" x2="610" y2="396" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah-violet)"/>
-        <text x="660" y="372" fill="#a78bfa" font-size="8">shared brain</text>
+        <!-- actors -->
+        <rect x="270" y="65" width="210" height="110" rx="7" fill="#0f172a"/><rect x="270" y="65" width="210" height="110" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="375" y="91" fill="white" font-size="11" font-weight="600" text-anchor="middle">Member function profile</text>
+        <text x="375" y="111" fill="#94a3b8" font-size="8" text-anchor="middle">private box · personal identity</text>
+        <text x="375" y="132" fill="#22d3ee" font-size="8" text-anchor="middle">reads + contributes to</text>
+        <text x="375" y="148" fill="#94a3b8" font-size="7" text-anchor="middle">its function's shared memory</text>
 
-        <!-- Central box -> Cloudflare (deploy) -->
-        <line x1="800" y1="330" x2="800" y2="396" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)"/>
-        <text x="812" y="366" fill="#fbbf24" font-size="8">deploy</text>
+        <rect x="270" y="225" width="210" height="130" rx="7" fill="#0f172a"/><rect x="270" y="225" width="210" height="130" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="375" y="251" fill="white" font-size="11" font-weight="600" text-anchor="middle">Central function agents</text>
+        <text x="375" y="272" fill="#94a3b8" font-size="8" text-anchor="middle">LT · Finance · Ops · Sales</text>
+        <text x="375" y="288" fill="#94a3b8" font-size="8" text-anchor="middle">CS · Product · Marketing</text>
+        <text x="375" y="314" fill="#34d399" font-size="8" text-anchor="middle">scheduled work + bridges</text>
+        <text x="375" y="333" fill="#94a3b8" font-size="7" text-anchor="middle">use the same function brains</text>
 
-        <!-- LEFT COLUMN -->
-        <rect x="20" y="90" width="110" height="60" rx="6" fill="#0f172a"/>
-        <rect x="20" y="90" width="110" height="60" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-        <text x="75" y="112" fill="white" font-size="11" font-weight="600" text-anchor="middle">Team Members</text>
-        <text x="75" y="128" fill="#94a3b8" font-size="8" text-anchor="middle">each person gets</text>
-        <text x="75" y="140" fill="#94a3b8" font-size="8" text-anchor="middle">their own box</text>
+        <!-- memory -->
+        <rect x="550" y="80" width="240" height="240" rx="9" fill="#0f172a"/><rect x="550" y="80" width="240" height="240" rx="9" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="670" y="108" fill="white" font-size="12" font-weight="600" text-anchor="middle">Honcho Cloud</text>
+        <text x="670" y="125" fill="#94a3b8" font-size="8" text-anchor="middle">workspace: procoffeegear</text>
+        <text x="570" y="155" fill="#e2e8f0" font-size="8">one AI peer per function</text>
+        <text x="570" y="175" fill="#94a3b8" font-size="7">Operations knowledge is shared by</text>
+        <text x="570" y="189" fill="#94a3b8" font-size="7">everyone onboarded to Operations.</text>
+        <text x="570" y="217" fill="#e2e8f0" font-size="8">one human peer per person</text>
+        <text x="570" y="237" fill="#94a3b8" font-size="7">The brain knows who contributed each</text>
+        <text x="570" y="251" fill="#94a3b8" font-size="7">conversation while keeping one function memory.</text>
+        <text x="570" y="283" fill="#a78bfa" font-size="8">persistent learned memory</text>
+        <text x="570" y="300" fill="#94a3b8" font-size="7">survives restarts and box migrations</text>
 
-        <rect x="20" y="190" width="110" height="70" rx="6" fill="#0f172a"/>
-        <rect x="20" y="190" width="110" height="70" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.5"/>
-        <text x="75" y="212" fill="white" font-size="11" font-weight="600" text-anchor="middle">Nous Portal</text>
-        <text x="75" y="228" fill="#94a3b8" font-size="8" text-anchor="middle">invite = your seat</text>
-        <text x="75" y="240" fill="#94a3b8" font-size="8" text-anchor="middle">auth + billing</text>
-        <text x="75" y="252" fill="#94a3b8" font-size="8" text-anchor="middle">(no shared logins)</text>
+        <!-- LT route -->
+        <rect x="835" y="150" width="200" height="115" rx="7" fill="#0f172a"/><rect x="835" y="150" width="200" height="115" rx="7" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="935" y="176" fill="white" font-size="11" font-weight="600" text-anchor="middle">Material-change bridges</text>
+        <text x="935" y="196" fill="#94a3b8" font-size="8" text-anchor="middle">daily at 06:30 UTC</text>
+        <text x="935" y="217" fill="#94a3b8" font-size="7" text-anchor="middle">function → LT, one way</text>
+        <text x="935" y="233" fill="#94a3b8" font-size="7" text-anchor="middle">skips non-material updates</text>
+        <text x="935" y="250" fill="#fb923c" font-size="7" text-anchor="middle">not raw chat replication</text>
 
-        <rect x="20" y="330" width="110" height="130" rx="6" fill="#0f172a"/>
-        <rect x="20" y="330" width="110" height="130" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="75" y="350" fill="white" font-size="11" font-weight="600" text-anchor="middle">Notion</text>
-        <text x="75" y="364" fill="#94a3b8" font-size="8" text-anchor="middle">control plane</text>
-        <text x="28" y="384" fill="#94a3b8" font-size="7">• Team Roster</text>
-        <text x="28" y="396" fill="#94a3b8" font-size="7">  (who gets what)</text>
-        <text x="28" y="410" fill="#94a3b8" font-size="7">• Intake docs</text>
-        <text x="28" y="422" fill="#94a3b8" font-size="7">  (what agents know)</text>
-        <text x="28" y="436" fill="#94a3b8" font-size="7">• Sync Status</text>
-        <text x="28" y="448" fill="#94a3b8" font-size="7">  ✅ / ⚠️ per person</text>
+        <rect x="835" y="330" width="200" height="70" rx="7" fill="#0f172a"/><rect x="835" y="330" width="200" height="70" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="935" y="356" fill="white" font-size="11" font-weight="600" text-anchor="middle">LT profile context</text>
+        <text x="935" y="376" fill="#94a3b8" font-size="8" text-anchor="middle">material changes + decisions needed</text>
+        <text x="935" y="391" fill="#94a3b8" font-size="7" text-anchor="middle">available only to LT members</text>
 
-        <rect x="20" y="500" width="110" height="130" rx="6" fill="#0f172a"/>
-        <rect x="20" y="500" width="110" height="130" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="75" y="520" fill="white" font-size="11" font-weight="600" text-anchor="middle">GitHub</text>
-        <text x="75" y="534" fill="#94a3b8" font-size="7" text-anchor="middle">WWWPCG/pcg-agents</text>
-        <text x="28" y="552" fill="#94a3b8" font-size="7">• onboarding scripts</text>
-        <text x="28" y="564" fill="#94a3b8" font-size="7">  (private repo)</text>
-        <text x="28" y="578" fill="#94a3b8" font-size="7">• everything agents</text>
-        <text x="28" y="590" fill="#94a3b8" font-size="7">  build lands in git</text>
-        <text x="28" y="608" fill="#fbbf24" font-size="7">versioned · shareable</text>
-        <text x="28" y="620" fill="#fbbf24" font-size="7">no lock-in</text>
+        <!-- work product -->
+        <rect x="35" y="455" width="175" height="95" rx="7" fill="#0f172a"/><rect x="35" y="455" width="175" height="95" rx="7" fill="rgba(30,41,59,.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="122" y="480" fill="white" font-size="11" font-weight="600" text-anchor="middle">Agent builds</text>
+        <text x="122" y="501" fill="#94a3b8" font-size="8" text-anchor="middle">code · skill · script</text>
+        <text x="122" y="518" fill="#94a3b8" font-size="8" text-anchor="middle">dashboard · automation</text>
+        <text x="122" y="536" fill="#94a3b8" font-size="7" text-anchor="middle">with a named person/team owner</text>
 
-        <!-- MEMBER INSTANCE (inside region x170-510, y60-330) -->
-        <rect x="190" y="95" width="140" height="60" rx="6" fill="#0f172a"/>
-        <rect x="190" y="95" width="140" height="60" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="260" y="117" fill="white" font-size="11" font-weight="600" text-anchor="middle">LT profile</text>
-        <text x="260" y="131" fill="#94a3b8" font-size="8" text-anchor="middle">leadership view</text>
-        <text x="260" y="143" fill="#94a3b8" font-size="7" text-anchor="middle">digest + org context</text>
+        <rect x="300" y="455" width="200" height="95" rx="7" fill="#0f172a"/><rect x="300" y="455" width="200" height="95" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="400" y="480" fill="white" font-size="11" font-weight="600" text-anchor="middle">GitHub</text>
+        <text x="400" y="500" fill="#94a3b8" font-size="8" text-anchor="middle">versioned source + rollback</text>
+        <text x="400" y="518" fill="#94a3b8" font-size="7" text-anchor="middle">private repos · reviewed changes</text>
+        <text x="400" y="536" fill="#fbbf24" font-size="7" text-anchor="middle">source of truth for shared assets</text>
 
-        <rect x="350" y="95" width="140" height="60" rx="6" fill="#0f172a"/>
-        <rect x="350" y="95" width="140" height="60" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="420" y="117" fill="white" font-size="11" font-weight="600" text-anchor="middle">YOUR FUNCTION</text>
-        <text x="420" y="131" fill="#94a3b8" font-size="8" text-anchor="middle">ops · cs · sales · …</text>
-        <text x="420" y="143" fill="#94a3b8" font-size="7" text-anchor="middle">full builder agent</text>
+        <rect x="590" y="455" width="200" height="95" rx="7" fill="#0f172a"/><rect x="590" y="455" width="200" height="95" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="690" y="480" fill="white" font-size="11" font-weight="600" text-anchor="middle">Cloudflare Workers</text>
+        <text x="690" y="500" fill="#94a3b8" font-size="8" text-anchor="middle">live app / URL</text>
+        <text x="690" y="518" fill="#94a3b8" font-size="7" text-anchor="middle">e.g. open-box dashboard</text>
+        <text x="690" y="536" fill="#fbbf24" font-size="7" text-anchor="middle">fast edge deployment</text>
 
-        <rect x="190" y="180" width="300" height="70" rx="6" fill="#0f172a"/>
-        <rect x="190" y="180" width="300" height="70" rx="6" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1.5"/>
-        <text x="340" y="200" fill="white" font-size="10" font-weight="600" text-anchor="middle">onboard — one command</text>
-        <text x="340" y="216" fill="#94a3b8" font-size="8" text-anchor="middle">reads roster → creates profiles</text>
-        <text x="340" y="230" fill="#94a3b8" font-size="8" text-anchor="middle">wires memory → verifies ✅</text>
+        <rect x="870" y="455" width="190" height="95" rx="7" fill="#0f172a"/><rect x="870" y="455" width="190" height="95" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="965" y="479" fill="white" font-size="10" font-weight="600" text-anchor="middle">Automation catalog</text>
+        <text x="965" y="499" fill="#94a3b8" font-size="8" text-anchor="middle">owner · team · audience</text>
+        <text x="965" y="517" fill="#94a3b8" font-size="7" text-anchor="middle">source · URL · schedule</text>
+        <text x="965" y="535" fill="#34d399" font-size="7" text-anchor="middle">status + health visible in Notion</text>
 
-        <text x="340" y="280" fill="#22d3ee" font-size="8" text-anchor="middle">your box is private to you</text>
-        <text x="340" y="294" fill="#94a3b8" font-size="8" text-anchor="middle">terminal · code · deploy</text>
-        <text x="340" y="312" fill="#94a3b8" font-size="7" text-anchor="middle">profile switcher (bottom-right) = your spaces</text>
-
-        <!-- CENTRAL BOX (inside region x560-980, y60-330) -->
-        <!-- Row 1 of agents -->
-        <rect x="580" y="95" width="90" height="40" rx="6" fill="#0f172a"/>
-        <rect x="580" y="95" width="90" height="40" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="625" y="112" fill="white" font-size="9" font-weight="600" text-anchor="middle">LT</text>
-        <text x="625" y="126" fill="#94a3b8" font-size="7" text-anchor="middle">leadership</text>
-
-        <rect x="680" y="95" width="90" height="40" rx="6" fill="#0f172a"/>
-        <rect x="680" y="95" width="90" height="40" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="725" y="112" fill="white" font-size="9" font-weight="600" text-anchor="middle">Finance</text>
-        <text x="725" y="126" fill="#94a3b8" font-size="7" text-anchor="middle">agent</text>
-
-        <rect x="780" y="95" width="90" height="40" rx="6" fill="#0f172a"/>
-        <rect x="780" y="95" width="90" height="40" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="825" y="112" fill="white" font-size="9" font-weight="600" text-anchor="middle">Operations</text>
-        <text x="825" y="126" fill="#94a3b8" font-size="7" text-anchor="middle">agent</text>
-
-        <rect x="880" y="95" width="90" height="40" rx="6" fill="#0f172a"/>
-        <rect x="880" y="95" width="90" height="40" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="925" y="112" fill="white" font-size="9" font-weight="600" text-anchor="middle">Sales</text>
-        <text x="925" y="126" fill="#94a3b8" font-size="7" text-anchor="middle">agent</text>
-
-        <!-- Row 2 of agents -->
-        <rect x="580" y="145" width="90" height="40" rx="6" fill="#0f172a"/>
-        <rect x="580" y="145" width="90" height="40" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="625" y="162" fill="white" font-size="9" font-weight="600" text-anchor="middle">CS</text>
-        <text x="625" y="176" fill="#94a3b8" font-size="7" text-anchor="middle">agent</text>
-
-        <rect x="680" y="145" width="90" height="40" rx="6" fill="#0f172a"/>
-        <rect x="680" y="145" width="90" height="40" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="725" y="162" fill="white" font-size="9" font-weight="600" text-anchor="middle">Product</text>
-        <text x="725" y="176" fill="#94a3b8" font-size="7" text-anchor="middle">agent</text>
-
-        <rect x="780" y="145" width="90" height="40" rx="6" fill="#0f172a"/>
-        <rect x="780" y="145" width="90" height="40" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="825" y="162" fill="white" font-size="9" font-weight="600" text-anchor="middle">Marketing</text>
-        <text x="825" y="176" fill="#94a3b8" font-size="7" text-anchor="middle">agent</text>
-
-        <!-- Bridges bus -->
-        <rect x="580" y="200" width="390" height="60" rx="6" fill="#0f172a"/>
-        <rect x="580" y="200" width="390" height="60" rx="6" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1.5"/>
-        <text x="775" y="220" fill="white" font-size="10" font-weight="600" text-anchor="middle">Daily bridges (06:30 UTC)</text>
-        <text x="775" y="236" fill="#94a3b8" font-size="8" text-anchor="middle">one-way context flows between function brains</text>
-        <text x="775" y="250" fill="#94a3b8" font-size="7" text-anchor="middle">ops→finance · cs→product · cs→ops · sales→finance · …</text>
-
-        <text x="775" y="290" fill="#34d399" font-size="8" text-anchor="middle">the brains the whole company shares</text>
-        <text x="775" y="304" fill="#94a3b8" font-size="7" text-anchor="middle">your box's profiles point at the same memory</text>
-
-        <!-- HONCHO CLOUD -->
-        <rect x="170" y="400" width="430" height="190" rx="8" fill="#0f172a"/>
-        <rect x="170" y="400" width="430" height="190" rx="8" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="385" y="425" fill="white" font-size="12" font-weight="600" text-anchor="middle">Honcho Cloud — the shared brain</text>
-        <text x="385" y="441" fill="#94a3b8" font-size="8" text-anchor="middle">workspace: procoffeegear</text>
-        <text x="185" y="466" fill="#e2e8f0" font-size="8">one shared brain per FUNCTION  (everyone in CS shares the CS brain)</text>
-        <text x="185" y="481" fill="#e2e8f0" font-size="8">one identity per PERSON  (you, remembered as you)</text>
-        <text x="185" y="503" fill="#94a3b8" font-size="7">function peers: lt · finance · ops · sales · cs · product · marketing</text>
-        <text x="185" y="517" fill="#94a3b8" font-size="7">human peers: wes · sina · each teammate as they join</text>
-        <text x="185" y="543" fill="#a78bfa" font-size="8">learns from every conversation — the longer we use it,</text>
-        <text x="185" y="556" fill="#a78bfa" font-size="8">the smarter every agent in the company gets</text>
-        <text x="185" y="576" fill="#94a3b8" font-size="7">powers: bridges · LT digest · onboarding memory</text>
-
-        <!-- CLOUDFLARE (deploy target, right-bottom) -->
-        <rect x="640" y="400" width="340" height="120" rx="6" fill="#0f172a"/>
-        <rect x="640" y="400" width="340" height="120" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="810" y="424" fill="white" font-size="11" font-weight="600" text-anchor="middle">Cloudflare Workers — apps go live</text>
-        <text x="810" y="438" fill="#94a3b8" font-size="8" text-anchor="middle">the deployment layer</text>
-        <text x="655" y="458" fill="#94a3b8" font-size="7">• agents build → git → one-command deploy</text>
-        <text x="655" y="472" fill="#94a3b8" font-size="7">• e.g. open-box-dashboard (returns tool)</text>
-        <text x="655" y="486" fill="#94a3b8" font-size="7">• reads live data from Airtable</text>
-        <text x="655" y="506" fill="#fbbf24" font-size="7">edge network — fast, cheap, no servers to run</text>
-
-        <!-- LEGEND (below all boundaries) -->
-        <text x="170" y="662" fill="white" font-size="10" font-weight="600">Legend</text>
-        <rect x="170" y="674" width="16" height="10" rx="2" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1"/>
-        <text x="192" y="682" fill="#94a3b8" font-size="8">Your profiles (on your box)</text>
-        <rect x="170" y="692" width="16" height="10" rx="2" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1"/>
-        <text x="192" y="700" fill="#94a3b8" font-size="8">Central function agents</text>
-        <rect x="170" y="710" width="16" height="10" rx="2" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1"/>
-        <text x="192" y="718" fill="#94a3b8" font-size="8">Shared memory (Honcho)</text>
-        <rect x="380" y="674" width="16" height="10" rx="2" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1"/>
-        <text x="402" y="682" fill="#94a3b8" font-size="8">External SaaS (Notion / GitHub / Cloudflare)</text>
-        <rect x="380" y="692" width="16" height="10" rx="2" fill="rgba(251,146,60,0.3)" stroke="#fb923c" stroke-width="1"/>
-        <text x="402" y="700" fill="#94a3b8" font-size="8">Automation (onboard / bridges)</text>
-        <rect x="380" y="710" width="16" height="10" rx="2" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1"/>
-        <text x="402" y="718" fill="#94a3b8" font-size="8">Access / auth</text>
-        <rect x="640" y="674" width="16" height="10" rx="2" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1"/>
-        <text x="662" y="682" fill="#94a3b8" font-size="8">People</text>
-        <line x1="640" y1="697" x2="656" y2="697" stroke="#fb7185" stroke-width="1.5" stroke-dasharray="4,3"/>
-        <text x="662" y="700" fill="#94a3b8" font-size="8">Invite / provisioning flow</text>
-        <line x1="640" y1="714" x2="656" y2="714" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="662" y="717" fill="#94a3b8" font-size="8">Memory flow</text>
+        <text x="400" y="623" fill="#94a3b8" font-size="8" text-anchor="middle">shared skills/scripts are pulled to eligible boxes (see Diagram 3)</text>
+        <text x="690" y="623" fill="#94a3b8" font-size="8" text-anchor="middle">live URLs are checked by health monitoring (see Diagram 4)</text>
       </svg>
     </div>
-
-    <!-- ================= THE BRIEF ================= -->
-    <div class="brief">
-
-      <h2><span class="dot" style="background:#22d3ee"></span>What you're looking at</h2>
-      <p>
-        Every person at Pro Coffee Gear gets <strong>their own private agent instance</strong> — your own box, your own login, nobody else can see into it.
-        On your box you run <strong>profiles</strong>: one for each space you belong to. Everyone carries the <em>LT profile</em> (the shared leadership view)
-        plus the profile for <em>your function</em> (Operations, CS, Sales, etc.). You hop between them with the profile switcher, bottom-right of the app.
-      </p>
-      <p style="margin-top:0.6rem">
-        What makes it more than "everyone has a chatbot" is the layer in the middle: <strong>Honcho, the shared brain</strong>. Each function has exactly
-        one brain, and every person in that function — and the central function agents — read and write the <em>same</em> memory. Your box is private;
-        your function's knowledge is shared. That's the whole trick.
-      </p>
-
-      <h2><span class="dot" style="background:#a78bfa"></span>How it builds context over time</h2>
-      <ul>
-        <li><strong>Day one — seeded, not blank.</strong> Each function's agent starts with standing context loaded from its Notion intake doc: who you are, your vendors, your recurring issues, your guardrails. It knows Pro Coffee Gear from the first message.</li>
-        <li><strong>Every conversation teaches it.</strong> Honcho remembers what matters from your work sessions — decisions, patterns, preferences — and gets sharper the more you use it. This memory survives restarts, upgrades, and box migrations.</li>
-        <li><strong>Knowledge crosses functions automatically.</strong> Daily bridges move the relevant signal one-way between brains: what CS learns about broken products flows to Product; what Ops learns about vendor costs flows to Finance. No meetings, no re-explaining.</li>
-        <li><strong>Leadership sees the whole picture.</strong> The LT profile surfaces the cross-functional digest — material changes and decisions-needed — without anyone having to write status reports.</li>
-      </ul>
-
-      <h2><span class="dot" style="background:#34d399"></span>How you use it in your function</h2>
-      <ul>
-        <li><strong>Treat it like a senior colleague who never forgets.</strong> Ask it questions about your area, draft customer replies, analyze data, write docs — it answers with your function's full accumulated knowledge behind it.</li>
-        <li><strong>Have it build real things.</strong> Your agent has a terminal, can write code, and can deploy. Dashboards, scripts, internal tools, automations — describe what you need, and iterate with it until it works.</li>
-        <li><strong>Correct it once, benefit forever.</strong> When it gets something wrong, say so. That correction becomes part of the function's memory — the next person never hits the same mistake.</li>
-      </ul>
-
-      <h2><span class="dot" style="background:#fbbf24"></span>How it's visible, shared, and learned from</h2>
-      <ul>
-        <li><strong>Everything built lands in git.</strong> Code, dashboards, and tools an agent creates live in versioned repos the whole team can inspect, reuse, and improve. Nothing is trapped inside one person's chat history, and nothing locks us to one vendor.</li>
-        <li><strong>Apps go live on Cloudflare.</strong> When an agent builds something people should actually use — like the returns dashboard — it deploys to Cloudflare Workers and gets a real URL anyone on the team can open. No servers to run, no deploy ceremony.</li>
-        <li><strong>Function knowledge is inherited.</strong> When someone new joins your function, they plug into the same shared brain on day one — they start where the function is, not from zero.</li>
-        <li><strong>Wins propagate sideways.</strong> The bridges push one function's learnings to the functions that need them, so a discovery in CS becomes a fix in Product without anyone playing telephone.</li>
-        <li><strong>Onboarding is self-verifying.</strong> The roster in Notion shows each person's status: <em>Function</em> = what they should have, <em>Active Profiles</em> = what's actually live, and <em>✅ Match / ⚠️ Mismatch</em> tells us instantly if something's off.</li>
-      </ul>
-
+    <div class="notes">
+      <div class="note"><strong>Knowledge is not one giant pool.</strong> Each function has its own shared brain. Bridges move only the relevant material signal between functions and into LT.</div>
+      <div class="note"><strong>People remain identifiable.</strong> Everyone in a function uses the same AI peer, but Honcho remembers each contributor as their own human peer.</div>
+      <div class="note"><strong>Built work has a separate lifecycle.</strong> Memory goes to Honcho; source goes to GitHub; live apps go to Cloudflare; significant systems are indexed in Notion.</div>
     </div>
+  </section>
 
-    <div class="cards">
-      <div class="card">
-        <div class="card-header"><div class="card-dot cyan"></div><h3>Day one for you</h3></div>
-        <ul>
-          <li>• Accept your Portal invite → your own box</li>
-          <li>• Run the one onboarding command Wes sends</li>
-          <li>• Check your roster row: ✅ Match + Onboarded ✔</li>
-          <li>• Open the switcher: LT + your function</li>
-        </ul>
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-dot violet"></div><h3>What your agent already knows</h3></div>
-        <ul>
-          <li>• Your function's intake doc (vendors, issues, rules)</li>
-          <li>• Everything your function's brain has learned</li>
-          <li>• Cross-functional signal pushed by bridges</li>
-          <li>• Who you are and how you like to work</li>
-        </ul>
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-dot amber"></div><h3>Sharing & learning</h3></div>
-        <ul>
-          <li>• Built things → git repos (inspectable, reusable)</li>
-          <li>• Live apps → Cloudflare URLs anyone can open</li>
-          <li>• Function knowledge → shared brain (inherited)</li>
-          <li>• Learnings → bridges to other functions</li>
-          <li>• Big picture → LT digest for leadership</li>
-        </ul>
-      </div>
+  <!-- ================= ONBOARDING ================= -->
+  <section class="diagram-section">
+    <h2 class="section-title"><span class="dot" style="background:var(--rose)"></span>Diagram 2 — Onboarding: functional member vs. LT member</h2>
+    <p class="section-subtitle">Both people get their own private instance. The LT checkbox changes which profiles and leadership context are installed.</p>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1100 650" aria-label="PCG onboarding diagram">
+        <defs>
+          <marker id="d2-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fb7185"/></marker>
+          <marker id="d2-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/></marker>
+          <marker id="d2-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#22d3ee"/></marker>
+          <pattern id="grid2" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid2)"/>
+        <!-- arrows -->
+        <line x1="220" y1="115" x2="280" y2="115" stroke="#fb7185" stroke-width="2" marker-end="url(#d2-rose)"/>
+        <line x1="480" y1="115" x2="540" y2="115" stroke="#fb7185" stroke-width="2" marker-end="url(#d2-rose)"/>
+        <line x1="740" y1="115" x2="790" y2="115" stroke="#fbbf24" stroke-width="2" marker-end="url(#d2-amber)"/>
+        <line x1="895" y1="170" x2="895" y2="215" stroke="#fbbf24" stroke-width="2"/>
+        <line x1="895" y1="215" x2="310" y2="215" stroke="#fbbf24" stroke-width="2"/>
+        <line x1="310" y1="215" x2="310" y2="255" stroke="#fbbf24" stroke-width="2" marker-end="url(#d2-amber)"/>
+        <line x1="895" y1="215" x2="790" y2="215" stroke="#fbbf24" stroke-width="2"/>
+        <line x1="790" y1="215" x2="790" y2="255" stroke="#fbbf24" stroke-width="2" marker-end="url(#d2-amber)"/>
+        <!-- Both branches receive both common automation and verification -->
+        <line x1="310" y1="445" x2="310" y2="470" stroke="#22d3ee" stroke-width="2"/>
+        <line x1="790" y1="445" x2="790" y2="470" stroke="#22d3ee" stroke-width="2"/>
+        <line x1="250" y1="470" x2="847" y2="470" stroke="#22d3ee" stroke-width="2"/>
+        <line x1="250" y1="470" x2="250" y2="495" stroke="#22d3ee" stroke-width="2" marker-end="url(#d2-cyan)"/>
+        <line x1="847" y1="470" x2="847" y2="495" stroke="#22d3ee" stroke-width="2" marker-end="url(#d2-cyan)"/>
+
+        <!-- common path -->
+        <text x="35" y="35" fill="#fb7185" font-size="11" font-weight="700">COMMON STEPS</text>
+        <rect x="35" y="65" width="185" height="100" rx="7" fill="#0f172a"/><rect x="35" y="65" width="185" height="100" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="127" y="90" fill="white" font-size="11" font-weight="600" text-anchor="middle">Notion roster row</text>
+        <text x="127" y="111" fill="#94a3b8" font-size="8" text-anchor="middle">Primary = home function</text>
+        <text x="127" y="129" fill="#94a3b8" font-size="8" text-anchor="middle">Adjacent = extra functions</text>
+        <text x="127" y="147" fill="#fb7185" font-size="8" text-anchor="middle">LT = gated checkbox</text>
+
+        <rect x="280" y="65" width="200" height="100" rx="7" fill="#0f172a"/><rect x="280" y="65" width="200" height="100" rx="7" fill="rgba(136,19,55,.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="380" y="90" fill="white" font-size="11" font-weight="600" text-anchor="middle">Nous Portal invite</text>
+        <text x="380" y="112" fill="#94a3b8" font-size="8" text-anchor="middle">member accepts invite</text>
+        <text x="380" y="130" fill="#94a3b8" font-size="8" text-anchor="middle">gets own private instance</text>
+        <text x="380" y="148" fill="#fb7185" font-size="7" text-anchor="middle">instance = access boundary</text>
+
+        <rect x="540" y="65" width="200" height="100" rx="7" fill="#0f172a"/><rect x="540" y="65" width="200" height="100" rx="7" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="640" y="90" fill="white" font-size="11" font-weight="600" text-anchor="middle">Run onboarding command</text>
+        <text x="640" y="112" fill="#94a3b8" font-size="8" text-anchor="middle">reads member by email</text>
+        <text x="640" y="130" fill="#94a3b8" font-size="8" text-anchor="middle">creates/wires profiles</text>
+        <text x="640" y="148" fill="#fb923c" font-size="7" text-anchor="middle">one shot on the new box</text>
+
+        <polygon points="895,55 1000,115 895,175 790,115" fill="#0f172a" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="895" y="107" fill="white" font-size="11" font-weight="600" text-anchor="middle">LT checked?</text>
+        <text x="895" y="128" fill="#94a3b8" font-size="8" text-anchor="middle">roster decides</text>
+        <text x="310" y="207" fill="#fbbf24" font-size="8" text-anchor="middle">NO</text>
+        <text x="790" y="207" fill="#fbbf24" font-size="8" text-anchor="middle">YES</text>
+
+        <!-- regular -->
+        <rect x="70" y="255" width="480" height="190" rx="10" fill="rgba(8,51,68,.06)" stroke="#22d3ee" stroke-dasharray="8,4"/>
+        <text x="90" y="280" fill="#22d3ee" font-size="11" font-weight="700">REGULAR FUNCTIONAL MEMBER</text>
+        <rect x="90" y="300" width="195" height="80" rx="7" fill="#0f172a"/><rect x="90" y="300" width="195" height="80" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="187" y="324" fill="white" font-size="10" font-weight="600" text-anchor="middle">Default = Primary</text>
+        <text x="187" y="344" fill="#94a3b8" font-size="8" text-anchor="middle">e.g. Operations</text>
+        <text x="187" y="362" fill="#22d3ee" font-size="7" text-anchor="middle">points at operations brain</text>
+        <rect x="310" y="300" width="195" height="80" rx="7" fill="#0f172a"/><rect x="310" y="300" width="195" height="80" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="407" y="324" fill="white" font-size="10" font-weight="600" text-anchor="middle">Adjacent profiles</text>
+        <text x="407" y="344" fill="#94a3b8" font-size="8" text-anchor="middle">only what roster grants</text>
+        <text x="407" y="362" fill="#94a3b8" font-size="7" text-anchor="middle">may be none</text>
+        <text x="310" y="408" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">NO LT PROFILE</text>
+        <text x="310" y="426" fill="#94a3b8" font-size="7" text-anchor="middle">leadership memory remains inaccessible</text>
+
+        <!-- LT -->
+        <rect x="570" y="255" width="460" height="190" rx="10" fill="rgba(76,29,149,.07)" stroke="#a78bfa" stroke-dasharray="8,4"/>
+        <text x="590" y="280" fill="#a78bfa" font-size="11" font-weight="700">LT MEMBER</text>
+        <rect x="590" y="300" width="130" height="80" rx="7" fill="#0f172a"/><rect x="590" y="300" width="130" height="80" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="655" y="324" fill="white" font-size="9" font-weight="600" text-anchor="middle">Primary</text>
+        <text x="655" y="344" fill="#94a3b8" font-size="7" text-anchor="middle">home function</text>
+        <text x="655" y="360" fill="#22d3ee" font-size="7" text-anchor="middle">default profile</text>
+        <rect x="735" y="300" width="130" height="80" rx="7" fill="#0f172a"/><rect x="735" y="300" width="130" height="80" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="800" y="324" fill="white" font-size="9" font-weight="600" text-anchor="middle">Adjacent</text>
+        <text x="800" y="344" fill="#94a3b8" font-size="7" text-anchor="middle">extra function</text>
+        <text x="800" y="360" fill="#22d3ee" font-size="7" text-anchor="middle">profiles</text>
+        <rect x="880" y="300" width="130" height="80" rx="7" fill="#0f172a"/><rect x="880" y="300" width="130" height="80" rx="7" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="945" y="324" fill="white" font-size="9" font-weight="600" text-anchor="middle">LT profile</text>
+        <text x="945" y="344" fill="#94a3b8" font-size="7" text-anchor="middle">aiPeer = exec</text>
+        <text x="945" y="360" fill="#a78bfa" font-size="7" text-anchor="middle">leadership feed</text>
+        <text x="800" y="409" fill="#94a3b8" font-size="7" text-anchor="middle">LT context is supplied by material-change bridges</text>
+        <text x="800" y="426" fill="#a78bfa" font-size="7" text-anchor="middle">not by giving everyone LT access</text>
+
+        <!-- common installed automation -->
+        <rect x="70" y="495" width="360" height="115" rx="7" fill="#0f172a"/><rect x="70" y="495" width="360" height="115" rx="7" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="250" y="519" fill="white" font-size="10" font-weight="600" text-anchor="middle">Background sync installed on both</text>
+        <text x="90" y="542" fill="#94a3b8" font-size="8">• profile sync every 15m</text>
+        <text x="90" y="559" fill="#94a3b8" font-size="8">• fleet asset sync every 30m</text>
+        <text x="90" y="576" fill="#94a3b8" font-size="8">• automation health every 15m</text>
+        <text x="90" y="595" fill="#fb923c" font-size="7">roster additions propagate; removals are not auto-deleted</text>
+
+        <rect x="665" y="495" width="365" height="115" rx="7" fill="#0f172a"/><rect x="665" y="495" width="365" height="115" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="847" y="519" fill="white" font-size="10" font-weight="600" text-anchor="middle">Verification writes back to Notion</text>
+        <text x="685" y="542" fill="#94a3b8" font-size="8">Requested: Primary + Adjacent + LT</text>
+        <text x="685" y="559" fill="#94a3b8" font-size="8">Actual: Active Profiles on this box</text>
+        <text x="685" y="577" fill="#34d399" font-size="8">✅ Match + Onboarded</text>
+        <text x="850" y="577" fill="#fb7185" font-size="8">or ⚠️ Mismatch</text>
+        <text x="685" y="596" fill="#94a3b8" font-size="7">member's personal peer is used on every profile</text>
+      </svg>
     </div>
-
-    <!-- ================= APPENDIX ================= -->
-    <div class="brief appendix" style="page-break-before: always;">
-
-      <h2><span class="dot" style="background:#94a3b8"></span>Appendix A — Definitions</h2>
-      <ul>
-        <li><strong>Hermes</strong> — the agent platform itself. The app you actually talk to and work in.</li>
-        <li><strong>Instance (your "box")</strong> — your own private Hermes server. Only you can log into it; nobody else can see inside.</li>
-        <li><strong>Profile</strong> — one agent identity on a box, with its own memory, tools, and role. You switch profiles bottom-right of the app.</li>
-        <li><strong>LT profile</strong> — the shared leadership view: company-wide digest and org context. Every team member carries it.</li>
-        <li><strong>Function profile</strong> — the agent for your team (Operations, CS, Sales…). A full builder: terminal, code, deploy.</li>
-        <li><strong>Honcho</strong> — the shared memory layer ("the brain"). Lives in the cloud, independent of any box, so knowledge survives restarts and migrations.</li>
-        <li><strong>Workspace</strong> — our container inside Honcho: <em>procoffeegear</em>. All of our peers live here.</li>
-        <li><strong>Peer</strong> — an identity in Honcho. An <em>AI peer</em> is a function's brain (shared); a <em>human peer</em> is you (personal).</li>
-        <li><strong>Shared brain</strong> — the one AI peer per function. Everyone in a function reads and writes the same memory.</li>
-        <li><strong>Standing context</strong> — authored knowledge loaded every session (comes from your function's Notion intake doc).</li>
-        <li><strong>Learned memory</strong> — what the brain picks up from real conversations over time.</li>
-        <li><strong>Bridge</strong> — a daily, one-way sync that pushes relevant findings from one function's brain to another (e.g. CS → Product).</li>
-        <li><strong>Nous Portal</strong> — where seats, billing, and invites are managed. Your invite = your box.</li>
-        <li><strong>Roster</strong> — the control-plane table in Notion: who gets which functions, plus onboarding verification.</li>
-        <li><strong>Sync Status</strong> — the roster check comparing what you should have vs. what's actually live. ✅ Match = good; ⚠️ Mismatch = tell Wes.</li>
-        <li><strong>Onboard command</strong> — the one-line setup command that wires a new box to everything and self-verifies.</li>
-        <li><strong>Git / GitHub</strong> — version control. Everything agents build lands here: visible, reusable, no lock-in.</li>
-        <li><strong>Cloudflare Workers</strong> — where built apps go live on the internet (e.g. the returns dashboard). Fast, cheap, no servers.</li>
-        <li><strong>Vendor lock-in</strong> — being stuck with one supplier because leaving is expensive. This stack is designed to avoid it.</li>
-      </ul>
-
-      <h2><span class="dot" style="background:#fb7185"></span>Appendix B — FAQ</h2>
-
-      <p><strong>Is my box private?</strong><br>
-      Yes. Your instance is yours alone — nobody else can open it, including Wes. What <em>is</em> shared: work done through your function profile feeds the function's brain, and leadership sees digest-level summaries through LT — never your raw chats.</p>
-
-      <p><strong>Do I need to know how to code?</strong><br>
-      No. Ask in plain English. The agent writes and runs the code; you review the result and steer.</p>
-
-      <p><strong>What's the difference between my function profile and LT?</strong><br>
-      Your function profile is your team's deep expert with full tools. LT is the shared leadership window onto the whole company. Switch between them bottom-right.</p>
-
-      <p><strong>Can I peek at another function's agent?</strong><br>
-      Your box only carries the profiles for your spaces. But you don't lose out — relevant knowledge from other functions reaches your brain automatically through the bridges.</p>
-
-      <p><strong>What if the agent gets something wrong?</strong><br>
-      Tell it, plainly. Corrections become permanent function memory — you fix it once, for everyone, forever.</p>
-
-      <p><strong>Where does the stuff I build end up?</strong><br>
-      Code and tools land in git repos the team can inspect and reuse. Anything worth using daily gets deployed to Cloudflare with a URL anyone can open.</p>
-
-      <p><strong>My roster row shows ⚠️ Mismatch after onboarding. Now what?</strong><br>
-      Don't retry the command. Take a screenshot of your row and send it to Wes — a mismatch means something specific failed and he'll fix it.</p>
-
-      <p><strong>Who pays for this?</strong><br>
-      The company. Your seat is covered under the team plan — you'll never see a bill.</p>
-
-      <p><strong>Does our company data train public AI models?</strong><br>
-      Our memory lives in our own private Honcho workspace, and our code in private repos. We deliberately chose a stack we control — that's the anti-lock-in design.</p>
-
-      <p><strong>What happens when someone changes roles or leaves?</strong><br>
-      Their roster row gets updated and their box is rewired or retired. The function brain keeps everything the function learned — knowledge stays with the company, not the person.</p>
-
+    <div class="notes">
+      <div class="note"><strong>Primary is the home function.</strong> It becomes the box’s default profile; it is no longer hardcoded to LT.</div>
+      <div class="note"><strong>Adjacent means extra functional access.</strong> Newly added Adjacent profiles appear through the 15-minute profile sync.</div>
+      <div class="note"><strong>LT is an explicit gate.</strong> Only checked roster rows receive the LT profile and leadership memory.</div>
     </div>
+  </section>
 
-    <p class="footer">Pro Coffee Gear • Agent Architecture • v1.0 • Questions → Wes</p>
-  </div>
+  <!-- ================= ASSET SHARING ================= -->
+  <section class="diagram-section">
+    <h2 class="section-title"><span class="dot" style="background:var(--amber)"></span>Diagram 3 — Skill, script, job, and tool sharing</h2>
+    <p class="section-subtitle">Box-local work is not shared automatically. The private <em>pcg-agents</em> repo is the distribution channel; Notion is the catalog and curation layer.</p>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1100 650" aria-label="PCG asset distribution diagram">
+        <defs>
+          <marker id="d3-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/></marker>
+          <marker id="d3-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#22d3ee"/></marker>
+          <marker id="d3-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#34d399"/></marker>
+          <pattern id="grid3" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid3)"/>
+        <!-- arrows -->
+        <line x1="220" y1="120" x2="285" y2="120" stroke="#94a3b8" stroke-width="2" marker-end="url(#d3-cyan)"/>
+        <line x1="480" y1="120" x2="550" y2="120" stroke="#fbbf24" stroke-width="2" marker-end="url(#d3-amber)"/>
+        <line x1="650" y1="175" x2="650" y2="220" stroke="#fbbf24" stroke-width="2"/>
+        <line x1="650" y1="220" x2="185" y2="220" stroke="#fbbf24" stroke-width="2"/>
+        <line x1="185" y1="220" x2="185" y2="270" stroke="#fbbf24" stroke-width="2" marker-end="url(#d3-amber)"/>
+        <line x1="650" y1="220" x2="430" y2="220" stroke="#fbbf24" stroke-width="2"/>
+        <line x1="430" y1="220" x2="430" y2="270" stroke="#fbbf24" stroke-width="2" marker-end="url(#d3-amber)"/>
+        <line x1="650" y1="220" x2="675" y2="220" stroke="#fbbf24" stroke-width="2"/>
+        <line x1="675" y1="220" x2="675" y2="270" stroke="#fbbf24" stroke-width="2" marker-end="url(#d3-amber)"/>
+        <line x1="650" y1="220" x2="920" y2="220" stroke="#fbbf24" stroke-width="2"/>
+        <line x1="920" y1="220" x2="920" y2="270" stroke="#fbbf24" stroke-width="2" marker-end="url(#d3-amber)"/>
+        <line x1="185" y1="380" x2="185" y2="450" stroke="#22d3ee" stroke-width="2" marker-end="url(#d3-cyan)"/>
+        <line x1="430" y1="380" x2="430" y2="450" stroke="#22d3ee" stroke-width="2" marker-end="url(#d3-cyan)"/>
+        <line x1="675" y1="380" x2="675" y2="450" stroke="#22d3ee" stroke-width="2" marker-end="url(#d3-cyan)"/>
+        <line x1="920" y1="380" x2="920" y2="450" stroke="#34d399" stroke-width="2" marker-end="url(#d3-green)"/>
+        <line x1="1010" y1="500" x2="1060" y2="500" stroke="#34d399" stroke-width="2" marker-end="url(#d3-green)"/>
+
+        <!-- build and classify -->
+        <rect x="35" y="70" width="185" height="100" rx="7" fill="#0f172a"/><rect x="35" y="70" width="185" height="100" rx="7" fill="rgba(30,41,59,.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="127" y="96" fill="white" font-size="11" font-weight="600" text-anchor="middle">Person + agent build</text>
+        <text x="127" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">procedure · script · job</text>
+        <text x="127" y="136" fill="#94a3b8" font-size="8" text-anchor="middle">integration · app · dashboard</text>
+        <text x="127" y="154" fill="#94a3b8" font-size="7" text-anchor="middle">starts box-local</text>
+
+        <rect x="285" y="70" width="195" height="100" rx="7" fill="#0f172a"/><rect x="285" y="70" width="195" height="100" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="382" y="96" fill="white" font-size="11" font-weight="600" text-anchor="middle">Classify the asset</text>
+        <text x="382" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">skill · script/job · tool/app</text>
+        <text x="382" y="138" fill="#22d3ee" font-size="7" text-anchor="middle">or leave as local utility</text>
+        <text x="382" y="154" fill="#94a3b8" font-size="7" text-anchor="middle">not every file becomes a deliverable</text>
+
+        <rect x="550" y="60" width="200" height="115" rx="7" fill="#0f172a"/><rect x="550" y="60" width="200" height="115" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="650" y="87" fill="white" font-size="11" font-weight="600" text-anchor="middle">Private pcg-agents repo</text>
+        <text x="650" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">versioned source of truth</text>
+        <text x="570" y="132" fill="#94a3b8" font-size="7">• skills/_common/</text>
+        <text x="570" y="147" fill="#94a3b8" font-size="7">• skills/&lt;function&gt;/</text>
+        <text x="570" y="162" fill="#94a3b8" font-size="7">• scripts/ · jobs.yaml · health.toml</text>
+
+        <!-- paths -->
+        <rect x="70" y="270" width="230" height="110" rx="7" fill="#0f172a"/><rect x="70" y="270" width="230" height="110" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="185" y="296" fill="white" font-size="10" font-weight="600" text-anchor="middle">Common skill</text>
+        <text x="185" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">skills/_common/</text>
+        <text x="185" y="338" fill="#94a3b8" font-size="7" text-anchor="middle">small company-wide playbooks</text>
+        <text x="185" y="357" fill="#22d3ee" font-size="7" text-anchor="middle">routes to every default profile</text>
+
+        <rect x="315" y="270" width="230" height="110" rx="7" fill="#0f172a"/><rect x="315" y="270" width="230" height="110" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="430" y="296" fill="white" font-size="10" font-weight="600" text-anchor="middle">Function skill</text>
+        <text x="430" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">skills/operations/ · skills/cs/ …</text>
+        <text x="430" y="338" fill="#94a3b8" font-size="7" text-anchor="middle">procedures for one function only</text>
+        <text x="430" y="357" fill="#22d3ee" font-size="7" text-anchor="middle">routes by roster-held function</text>
+
+        <rect x="560" y="270" width="230" height="110" rx="7" fill="#0f172a"/><rect x="560" y="270" width="230" height="110" rx="7" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="675" y="296" fill="white" font-size="10" font-weight="600" text-anchor="middle">Shared script / job</text>
+        <text x="675" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">scripts/ + jobs.yaml</text>
+        <text x="675" y="338" fill="#94a3b8" font-size="7" text-anchor="middle">deterministic code + schedule</text>
+        <text x="675" y="357" fill="#fb923c" font-size="7" text-anchor="middle">routes fleet-wide or by job scope</text>
+
+        <rect x="805" y="270" width="230" height="110" rx="7" fill="#0f172a"/><rect x="805" y="270" width="230" height="110" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="920" y="296" fill="white" font-size="10" font-weight="600" text-anchor="middle">Business tool / app</text>
+        <text x="920" y="316" fill="#94a3b8" font-size="8" text-anchor="middle">source repo + deploy method</text>
+        <text x="920" y="338" fill="#94a3b8" font-size="7" text-anchor="middle">meaningful shared deliverable</text>
+        <text x="920" y="357" fill="#34d399" font-size="7" text-anchor="middle">proposed to catalog for approval</text>
+
+        <!-- destinations -->
+        <rect x="70" y="450" width="230" height="115" rx="7" fill="#0f172a"/><rect x="70" y="450" width="230" height="115" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="185" y="476" fill="white" font-size="10" font-weight="600" text-anchor="middle">All member boxes</text>
+        <text x="185" y="497" fill="#94a3b8" font-size="8" text-anchor="middle">pcg-fleet-sync every 30m</text>
+        <text x="185" y="517" fill="#94a3b8" font-size="7" text-anchor="middle">installs common skill</text>
+        <text x="185" y="536" fill="#22d3ee" font-size="7" text-anchor="middle">without loading every function skill</text>
+        <text x="185" y="553" fill="#94a3b8" font-size="7" text-anchor="middle">read-only token: pcg-agents only</text>
+
+        <rect x="315" y="450" width="230" height="115" rx="7" fill="#0f172a"/><rect x="315" y="450" width="230" height="115" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="430" y="476" fill="white" font-size="10" font-weight="600" text-anchor="middle">Matching function profiles</text>
+        <text x="430" y="497" fill="#94a3b8" font-size="8" text-anchor="middle">e.g. Operations holders only</text>
+        <text x="430" y="517" fill="#94a3b8" font-size="7" text-anchor="middle">profiles/operations/skills/</text>
+        <text x="430" y="536" fill="#22d3ee" font-size="7" text-anchor="middle">scope follows roster, not folders</text>
+        <text x="430" y="553" fill="#94a3b8" font-size="7" text-anchor="middle">keeps token cost and access contained</text>
+
+        <rect x="560" y="450" width="230" height="115" rx="7" fill="#0f172a"/><rect x="560" y="450" width="230" height="115" rx="7" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="675" y="476" fill="white" font-size="10" font-weight="600" text-anchor="middle">Managed script + cron</text>
+        <text x="675" y="497" fill="#94a3b8" font-size="8" text-anchor="middle">repo-managed pcg-/pcg_ wins</text>
+        <text x="675" y="517" fill="#94a3b8" font-size="7" text-anchor="middle">other local edits are preserved</text>
+        <text x="675" y="536" fill="#fb923c" font-size="7" text-anchor="middle">missing jobs created, not edited</text>
+        <text x="675" y="553" fill="#94a3b8" font-size="7" text-anchor="middle">removed assets become .revoked</text>
+
+        <rect x="805" y="450" width="205" height="115" rx="7" fill="#0f172a"/><rect x="805" y="450" width="205" height="115" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="907" y="476" fill="white" font-size="10" font-weight="600" text-anchor="middle">Notion proposal</text>
+        <text x="907" y="497" fill="#94a3b8" font-size="8" text-anchor="middle">Proposed → owner review</text>
+        <text x="907" y="517" fill="#94a3b8" font-size="7" text-anchor="middle">owner · functions · audience</text>
+        <text x="907" y="536" fill="#94a3b8" font-size="7" text-anchor="middle">source · URL · rollback</text>
+        <text x="907" y="553" fill="#34d399" font-size="7" text-anchor="middle">only significant systems belong here</text>
+
+        <rect x="1035" y="455" width="55" height="105" rx="7" fill="#0f172a"/><rect x="1035" y="455" width="55" height="105" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1062" y="483" fill="white" font-size="8" font-weight="600" text-anchor="middle">LIVE</text>
+        <text x="1062" y="502" fill="#94a3b8" font-size="7" text-anchor="middle">Cloud-</text>
+        <text x="1062" y="514" fill="#94a3b8" font-size="7" text-anchor="middle">flare</text>
+        <text x="1062" y="535" fill="#94a3b8" font-size="7" text-anchor="middle">or other</text>
+        <text x="1062" y="547" fill="#94a3b8" font-size="7" text-anchor="middle">target</text>
+
+        <text x="550" y="615" fill="#94a3b8" font-size="8" text-anchor="middle">Local utility? Keep it local. Shared or recurring business system? Put it in source control, assign an owner, and register it.</text>
+      </svg>
+    </div>
+    <div class="notes">
+      <div class="note"><strong>Skills teach the agent how to work.</strong> They are loaded only into the profiles that need them, so Operations procedures do not clutter CS.</div>
+      <div class="note"><strong>Scripts do deterministic work.</strong> Shared scripts self-update from GitHub; managed jobs can be declared in <em>jobs.yaml</em> and run without model cost.</div>
+      <div class="note"><strong>Tools are business deliverables.</strong> Dashboards, apps, integrations, and recurring automations get an owner, team relationship, source, status, health, and rollback method.</div>
+    </div>
+  </section>
+
+  <!-- ================= MONITORING ================= -->
+  <section class="diagram-section">
+    <h2 class="section-title"><span class="dot" style="background:var(--green)"></span>Diagram 4 — Routing, ownership, monitoring, and repair</h2>
+    <p class="section-subtitle">This is the team’s state map: what exists, who owns it, which functions it serves, where it runs, whether it is healthy, and how a failure is handled.</p>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1100 650" aria-label="PCG automation monitoring diagram">
+        <defs>
+          <marker id="d4-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#34d399"/></marker>
+          <marker id="d4-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fb7185"/></marker>
+          <marker id="d4-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/></marker>
+          <pattern id="grid4" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0L0 0 0 40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#grid4)"/>
+        <!-- arrows -->
+        <line x1="220" y1="130" x2="280" y2="130" stroke="#34d399" stroke-width="2" marker-end="url(#d4-green)"/>
+        <line x1="480" y1="130" x2="550" y2="130" stroke="#34d399" stroke-width="2" marker-end="url(#d4-green)"/>
+        <line x1="750" y1="130" x2="820" y2="130" stroke="#34d399" stroke-width="2" marker-end="url(#d4-green)"/>
+        <line x1="380" y1="190" x2="380" y2="280" stroke="#34d399" stroke-width="2" marker-end="url(#d4-green)"/>
+        <line x1="650" y1="190" x2="650" y2="280" stroke="#34d399" stroke-width="2" marker-end="url(#d4-green)"/>
+        <line x1="920" y1="190" x2="920" y2="280" stroke="#34d399" stroke-width="2" marker-end="url(#d4-green)"/>
+
+        <line x1="920" y1="410" x2="920" y2="455" stroke="#fb7185" stroke-width="2" marker-end="url(#d4-rose)"/>
+        <line x1="820" y1="505" x2="750" y2="505" stroke="#fbbf24" stroke-width="2" marker-end="url(#d4-amber)"/>
+        <line x1="550" y1="505" x2="480" y2="505" stroke="#fbbf24" stroke-width="2" marker-end="url(#d4-amber)"/>
+        <line x1="280" y1="505" x2="220" y2="505" stroke="#34d399" stroke-width="2" marker-end="url(#d4-green)"/>
+        <path d="M120 455 C120 410,250 410,280 365" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#d4-green)"/>
+
+        <!-- top monitoring pipeline -->
+        <rect x="35" y="70" width="185" height="120" rx="7" fill="#0f172a"/><rect x="35" y="70" width="185" height="120" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="127" y="96" fill="white" font-size="10" font-weight="600" text-anchor="middle">Every managed box</text>
+        <text x="127" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">member email = instance ID</text>
+        <text x="52" y="141" fill="#94a3b8" font-size="7">• script files</text>
+        <text x="52" y="157" fill="#94a3b8" font-size="7">• cron jobs + outputs</text>
+        <text x="52" y="173" fill="#94a3b8" font-size="7">• external dependencies</text>
+
+        <rect x="280" y="70" width="200" height="120" rx="7" fill="#0f172a"/><rect x="280" y="70" width="200" height="120" rx="7" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="380" y="96" fill="white" font-size="10" font-weight="600" text-anchor="middle">Health job every 15m</text>
+        <text x="380" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">zero-token no-agent check</text>
+        <text x="300" y="141" fill="#94a3b8" font-size="7">syntax · dependency · cron</text>
+        <text x="300" y="157" fill="#94a3b8" font-size="7">live probe · missing script</text>
+        <text x="300" y="174" fill="#34d399" font-size="7">healthy/no change = silent</text>
+
+        <rect x="550" y="70" width="200" height="120" rx="7" fill="#0f172a"/><rect x="550" y="70" width="200" height="120" rx="7" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="650" y="96" fill="white" font-size="10" font-weight="600" text-anchor="middle">Script Health Registry</text>
+        <text x="650" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">one row per deployment/instance</text>
+        <text x="570" y="141" fill="#94a3b8" font-size="7">health · criticality · coverage</text>
+        <text x="570" y="157" fill="#94a3b8" font-size="7">last success/failure · detail</text>
+        <text x="570" y="174" fill="#a78bfa" font-size="7">incident · owner · repair policy</text>
+
+        <rect x="820" y="70" width="240" height="120" rx="7" fill="#0f172a"/><rect x="820" y="70" width="240" height="120" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="940" y="96" fill="white" font-size="10" font-weight="600" text-anchor="middle">Business Automations &amp; Deliverables</text>
+        <text x="940" y="118" fill="#94a3b8" font-size="8" text-anchor="middle">meaningful systems, not every utility</text>
+        <text x="840" y="141" fill="#94a3b8" font-size="7">builder/submitted by · owner · email</text>
+        <text x="840" y="157" fill="#94a3b8" font-size="7">functions · audience · visibility</text>
+        <text x="840" y="174" fill="#34d399" font-size="7">source · job · URL · status · health</text>
+
+        <!-- state views -->
+        <rect x="280" y="280" width="200" height="130" rx="7" fill="#0f172a"/><rect x="280" y="280" width="200" height="130" rx="7" fill="rgba(30,41,59,.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="380" y="306" fill="white" font-size="10" font-weight="600" text-anchor="middle">Team state view</text>
+        <text x="300" y="330" fill="#94a3b8" font-size="7">WHO: owner + submitter</text>
+        <text x="300" y="348" fill="#94a3b8" font-size="7">WHERE: instance + path + repo</text>
+        <text x="300" y="366" fill="#94a3b8" font-size="7">WHO USES IT: functions + audience</text>
+        <text x="300" y="384" fill="#94a3b8" font-size="7">HOW IT RUNS: URL + job + schedule</text>
+        <text x="300" y="401" fill="#34d399" font-size="7">STATE: build/live/paused + health</text>
+
+        <rect x="550" y="280" width="200" height="130" rx="7" fill="#0f172a"/><rect x="550" y="280" width="200" height="130" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="650" y="306" fill="white" font-size="10" font-weight="600" text-anchor="middle">Healthy state</text>
+        <text x="650" y="330" fill="#34d399" font-size="9" font-weight="600" text-anchor="middle">✅ no action</text>
+        <text x="650" y="353" fill="#94a3b8" font-size="8" text-anchor="middle">boards get Last Checked</text>
+        <text x="650" y="371" fill="#94a3b8" font-size="8" text-anchor="middle">healthy output stays silent</text>
+        <text x="650" y="395" fill="#94a3b8" font-size="7" text-anchor="middle">low noise by design</text>
+
+        <rect x="820" y="280" width="240" height="130" rx="7" fill="#0f172a"/><rect x="820" y="280" width="240" height="130" rx="7" fill="rgba(136,19,55,.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="940" y="306" fill="white" font-size="10" font-weight="600" text-anchor="middle">Failure / warning detected</text>
+        <text x="840" y="330" fill="#94a3b8" font-size="7">• incident key deduplicates repeats</text>
+        <text x="840" y="348" fill="#94a3b8" font-size="7">• failure + recovery alert</text>
+        <text x="840" y="366" fill="#94a3b8" font-size="7">• unresolved failure reminder every 6h</text>
+        <text x="840" y="384" fill="#fb7185" font-size="7">• alert delivered to connected channels</text>
+        <text x="840" y="401" fill="#94a3b8" font-size="7">• owner/repair policy decides next step</text>
+
+        <!-- repair lifecycle -->
+        <rect x="820" y="455" width="240" height="110" rx="7" fill="#0f172a"/><rect x="820" y="455" width="240" height="110" rx="7" fill="rgba(251,146,60,.3)" stroke="#fb923c" stroke-width="1.5"/>
+        <text x="940" y="481" fill="white" font-size="10" font-weight="600" text-anchor="middle">Route by repair policy</text>
+        <text x="840" y="505" fill="#94a3b8" font-size="7">detect-only / manual → owner</text>
+        <text x="840" y="523" fill="#94a3b8" font-size="7">repair-pr → central repair gate</text>
+        <text x="840" y="541" fill="#fb923c" font-size="7">critical-approval → no autonomous change</text>
+        <text x="840" y="557" fill="#94a3b8" font-size="7">safe-auto-heal reserved for safe actions</text>
+
+        <rect x="550" y="455" width="200" height="110" rx="7" fill="#0f172a"/><rect x="550" y="455" width="200" height="110" rx="7" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="650" y="481" fill="white" font-size="10" font-weight="600" text-anchor="middle">Tested repair PR</text>
+        <text x="650" y="505" fill="#94a3b8" font-size="8" text-anchor="middle">repair agent works from source</text>
+        <text x="650" y="524" fill="#94a3b8" font-size="7" text-anchor="middle">runs declared test command</text>
+        <text x="650" y="542" fill="#22d3ee" font-size="7" text-anchor="middle">owner approves / merges</text>
+        <text x="650" y="558" fill="#94a3b8" font-size="7" text-anchor="middle">PR URL saved to incident row</text>
+
+        <rect x="280" y="455" width="200" height="110" rx="7" fill="#0f172a"/><rect x="280" y="455" width="200" height="110" rx="7" fill="rgba(120,53,15,.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="380" y="481" fill="white" font-size="10" font-weight="600" text-anchor="middle">Deploy / distribute</text>
+        <text x="380" y="505" fill="#94a3b8" font-size="8" text-anchor="middle">fleet sync · Cloudflare · local</text>
+        <text x="380" y="524" fill="#94a3b8" font-size="7" text-anchor="middle">method comes from health.toml</text>
+        <text x="380" y="542" fill="#fbbf24" font-size="7" text-anchor="middle">rollback = git revert / restore</text>
+        <text x="380" y="558" fill="#94a3b8" font-size="7" text-anchor="middle">source remains auditable</text>
+
+        <rect x="35" y="455" width="185" height="110" rx="7" fill="#0f172a"/><rect x="35" y="455" width="185" height="110" rx="7" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="127" y="481" fill="white" font-size="10" font-weight="600" text-anchor="middle">Recovery verified</text>
+        <text x="127" y="505" fill="#34d399" font-size="9" font-weight="600" text-anchor="middle">RECOVERED</text>
+        <text x="127" y="527" fill="#94a3b8" font-size="8" text-anchor="middle">next health run is green</text>
+        <text x="127" y="546" fill="#94a3b8" font-size="7" text-anchor="middle">incident status → Resolved</text>
+        <text x="127" y="560" fill="#94a3b8" font-size="7" text-anchor="middle">team board reflects reality</text>
+
+        <text x="550" y="620" fill="#94a3b8" font-size="8" text-anchor="middle">The boards are the team-facing map; the 15-minute checks keep the map honest.</text>
+      </svg>
+    </div>
+    <div class="notes">
+      <div class="note"><strong>Two boards, two jobs.</strong> The deliverables board answers “what have we built?” The script registry answers “is each deployed piece working?”</div>
+      <div class="note"><strong>Relationships are explicit.</strong> Every meaningful build can show its submitter, owner, functions, audience, source repo, job IDs, live URL, deployment, rollback, and alert target.</div>
+      <div class="note"><strong>Repair is controlled.</strong> Health detection is automatic; code changes follow a declared policy. Critical systems never change without approval.</div>
+    </div>
+  </section>
+
+  <!-- ================= EXPLANATION ================= -->
+  <section class="brief">
+    <h2><span class="dot" style="background:var(--cyan)"></span>How the four views fit together</h2>
+    <ul>
+      <li><strong>Onboarding establishes access and routing.</strong> The roster decides the member’s home function, adjacent functions, and whether LT is permitted. The member’s box is then wired to the corresponding shared brains.</li>
+      <li><strong>Data flow begins after onboarding.</strong> Function work teaches the function brain. Bridges summarize material changes into the LT feed. Built source and deployed tools follow their own GitHub/Cloudflare lifecycle.</li>
+      <li><strong>Asset sharing turns one person’s build into team capability.</strong> Skills route to the profiles that need them, scripts route to managed boxes, and meaningful tools are cataloged and assigned to an owner.</li>
+      <li><strong>Monitoring closes the loop.</strong> The two Notion boards show what exists and whether it is healthy; recurring checks detect drift, notify owners, and verify recovery.</li>
+    </ul>
+
+    <h2><span class="dot" style="background:var(--amber)"></span>What counts as a meaningful deliverable</h2>
+    <p>A local helper file does not need to become company infrastructure. A build belongs on the Business Automations &amp; Deliverables board when it is recurring, operational, shared with a function/company/LT audience, or materially affects customers, revenue, payments, inventory, compliance, finance, or vendors. New meaningful builds enter as <strong>Proposed</strong>; a function owner approves, rejects, or requests changes.</p>
+
+    <h2><span class="dot" style="background:var(--green)"></span>Current operating truth</h2>
+    <ul>
+      <li><strong>Shared by nature:</strong> Honcho memory, Notion pages/boards, GitHub repositories, and Cloudflare URLs.</li>
+      <li><strong>Box-local until distributed:</strong> skills, scripts, cron jobs, profiles, tokens, and standing-context files.</li>
+      <li><strong>Additions are automated; destructive removal is guarded.</strong> New Adjacent profiles are created automatically. Removed repo assets are quarantined as <em>.revoked</em>. Removing a roster permission does not silently delete a local profile.</li>
+      <li><strong>“Healthy” is evidence-based.</strong> The monitor checks syntax, declared dependencies, cron state/output, live endpoints, and missing previously registered scripts. It does not execute dangerous external writes merely to prove health.</li>
+    </ul>
+  </section>
+
+  <!-- ================= APPENDIX ================= -->
+  <section class="brief appendix">
+    <h2><span class="dot" style="background:var(--slate, #94a3b8)"></span>Appendix A — Definitions</h2>
+    <ul>
+      <li><strong>Hermes</strong> — the agent platform team members work in.</li>
+      <li><strong>Instance / box</strong> — one member’s isolated Hermes server and access boundary.</li>
+      <li><strong>Profile</strong> — a function-specific agent identity on a box, with its own context, tools, and skill index.</li>
+      <li><strong>Primary</strong> — the roster-selected home function; it becomes the member box’s default profile.</li>
+      <li><strong>Adjacent</strong> — extra functional profiles a member is allowed to switch into.</li>
+      <li><strong>LT checkbox</strong> — the explicit roster gate for receiving the LT profile and leadership context.</li>
+      <li><strong>Honcho</strong> — the persistent shared-memory layer.</li>
+      <li><strong>AI peer</strong> — one function’s shared brain in Honcho.</li>
+      <li><strong>Human peer</strong> — one person’s identity in Honcho, used across their permitted profiles.</li>
+      <li><strong>Standing context</strong> — authored function knowledge loaded from Notion.</li>
+      <li><strong>Learned memory</strong> — durable knowledge learned from real conversations.</li>
+      <li><strong>Bridge</strong> — a one-way summarization route between function brains or into LT.</li>
+      <li><strong>Skill</strong> — a procedural playbook that teaches a profile how to perform a recurring type of work.</li>
+      <li><strong>Script</strong> — deterministic code used by an agent or scheduled job.</li>
+      <li><strong>Tool / app</strong> — a business-facing deliverable such as a dashboard, integration, or deployed workflow.</li>
+      <li><strong>pcg-fleet-sync</strong> — the zero-token 30-minute puller that distributes scoped skills, scripts, and managed job definitions from GitHub.</li>
+      <li><strong>Repo-managed asset</strong> — a <em>pcg-</em>/<em>pcg_</em>-prefixed item where the repository wins conflicts.</li>
+      <li><strong>Quarantine / .revoked</strong> — a safe rename used when a previously distributed asset disappears from the repo; it is not hard-deleted.</li>
+      <li><strong>Business Automations &amp; Deliverables</strong> — the team-facing Notion catalog of significant systems and builds.</li>
+      <li><strong>Script Health Registry</strong> — the operational Notion board with one row per script deployment/instance.</li>
+      <li><strong>Repair policy</strong> — the declared rule for a failure: detect-only, safe-auto-heal, repair PR, critical approval, or manual.</li>
+      <li><strong>Incident key</strong> — a stable fingerprint that deduplicates repeated reports of the same failure.</li>
+      <li><strong>Cloudflare Workers</strong> — the live deployment layer for web tools such as the open-box returns dashboard.</li>
+      <li><strong>Vendor lock-in</strong> — dependency on one supplier that makes leaving expensive; this architecture keeps code, memory, control data, and deploys separable.</li>
+    </ul>
+
+    <h2 style="page-break-before:always; break-before:page;"><span class="dot" style="background:var(--rose)"></span>Appendix B — FAQ</h2>
+    <p><strong>Does every employee get an LT profile?</strong><br>No. LT is explicitly gated by the roster checkbox. Regular functional members receive Primary plus any Adjacent profiles only.</p>
+    <p><strong>Does everyone in Operations share Sina’s personal memory?</strong><br>No. Everyone assigned to Operations shares the Operations AI peer—the function brain—but each person is represented by their own human peer.</p>
+    <p><strong>Are all chats copied into LT?</strong><br>No. Daily bridges ask each function brain for material changes and decisions leadership should know. Non-material updates and raw chats are not copied wholesale.</p>
+    <p><strong>How does a skill reach the team?</strong><br>It is committed to either <em>skills/_common/</em> or a function folder in the private repo. The 30-minute fleet sync places it only into eligible profiles.</p>
+    <p><strong>How does a script reach the team?</strong><br>Shared scripts live under <em>scripts/</em> in the private repo and are pulled to managed boxes. A missing <em>pcg-</em> job declared in <em>jobs.yaml</em> is created automatically.</p>
+    <p><strong>Does the repository overwrite a person’s local work?</strong><br>Only repo-managed <em>pcg-</em>/<em>pcg_</em> assets are authoritative. Other local changes are preserved and reported as conflicts.</p>
+    <p><strong>Where can I see everything the team has built?</strong><br>The Business Automations &amp; Deliverables board shows meaningful shared systems, their owners, functions, audience, source, schedule, URL, status, and health. One-off utilities are intentionally excluded.</p>
+    <p><strong>Where can I see whether the underlying code is working?</strong><br>The Script Health Registry shows each script deployment/instance, checks performed, cron relationships, latest success or failure, incident state, and repair policy.</p>
+    <p><strong>What happens when something breaks?</strong><br>The 15-minute health job updates the boards and alerts on failure or recovery. Unresolved failures remind every six hours. The repair policy determines whether the owner handles it manually or a tested repair PR may be opened for approval.</p>
+    <p><strong>Can the repair system change critical infrastructure by itself?</strong><br>No. Critical-approval and manual policies prevent autonomous changes. Even repair-PR items require the owner to approve and merge the fix.</p>
+    <p><strong>How do we undo a bad change?</strong><br>The source and rollback method are recorded. Most shared assets roll back by reverting the Git commit; fleet sync or redeployment restores the previous version.</p>
+    <p><strong>What if onboarding shows ⚠️ Mismatch?</strong><br>Compare Requested versus Active Profiles in the roster. Do not repeatedly rerun onboarding; send the mismatch detail to the system owner so the failed step can be diagnosed.</p>
+  </section>
+
+  <p class="footer">Pro Coffee Gear • Agent System Guide • v2.0 • Source of truth: private pcg-agents repo + Notion control boards</p>
+</div>
 </body>
 </html>
