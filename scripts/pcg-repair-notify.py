@@ -55,7 +55,8 @@ def main() -> int:
     if not selected:
         return 0
     for incident in selected:
-        print(f"[REPAIR APPROVAL NEEDED] {incident['name']} on {incident['instance']}")
+        instances = ", ".join(incident.get("instances", [])) or incident.get("instance", "")
+        print(f"[REPAIR APPROVAL NEEDED] {incident['name']} on {instances}")
         print(f"Failure: {incident['failure_detail']}")
         print(f"Repair PR: {incident['fix_pr']}")
         if incident.get("test_command"):
@@ -66,7 +67,7 @@ def main() -> int:
         print(f'  review and approve {incident["fix_pr"]}')
         print("The agent must re-check CI and ask for explicit confirmation before merging.")
         print()
-        seen.add(incident["incident_key"])
+        seen.add(incident["notification_marker"])
     STATE_FILE.write_text(json.dumps({"seen": sorted(seen)}, indent=2) + "\n")
     return 0
 
