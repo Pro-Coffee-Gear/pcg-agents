@@ -15,7 +15,7 @@ from pathlib import Path
 HOME = Path(os.environ.get("HERMES_HOME", "/opt/data"))
 DS_ID = "c9290a04-1c19-41fc-b76e-35d23532c510"
 sys.path.insert(0, str(HOME / "scripts"))
-from pcg_automation_core import script_row_to_incident, select_repair_candidates  # noqa: E402
+from pcg_automation_core import script_row_to_incident, group_repair_candidates  # noqa: E402
 
 
 def key() -> str:
@@ -26,20 +26,29 @@ def key() -> str:
 
 
 def main() -> int:
-    req = urllib.request.Request(
-        f"https://api.notion.com/v1/data_sources/{DS_ID}/query", method="POST",
-        data=b'{"page_size":100}',
-        headers={"Authorization": f"Bearer {key()}", "Notion-Version": "2025-09-03",
-                 "Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=45) as r:
-        rows = json.load(r).get("results", [])
-    incidents = select_repair_candidates([script_row_to_incident(row) for row in rows])
+    rows, cursor = [], None
+    while True:
+        body = {"page_size": 100}
+        if cursor:
+            body["start_cursor"] = cursor
+        req = urllib.request.Request(
+            f"https://api.notion.com/v1/data_sources/{DS_ID}/query", method="POST",
+            data=json.dumps(body).encode(),
+            headers={"Authorization": f"Bearer {key()}", "Notion-Version": "2025-09-03",
+                     "Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=45) as r:
+            page = json.load(r)
+        rows.extend(page.get("results", []))
+        if not page.get("has_more"):
+            break
+        cursor = page.get("next_cursor")
+    incidents = group_repair_candidates([script_row_to_incident(row) for row in rows])
     # Stable ordering and stable fields are essential for monitor hash suppression.
     payload = [{k: row.get(k, "") for k in (
-        "row_id", "name", "instance", "incident_key", "failure_detail", "owner_email",
-        "source_repo", "test_command", "deployment_method", "rollback_method")}
-        for row in sorted(incidents, key=lambda x: (x.get("incident_key", ""), x.get("row_id", "")))]
+        "repair_group_key", "row_ids", "instances", "incident_keys", "name", "failure_detail",
+        "owner_email", "source_repo", "test_command", "deployment_method", "rollback_method")}
+        for row in sorted(incidents, key=lambda x: x.get("repair_group_key", ""))]
     print(json.dumps({"repair_incidents": payload}, sort_keys=True, separators=(",", ":")))
     return 0
 
