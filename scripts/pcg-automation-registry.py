@@ -198,6 +198,23 @@ DELIVERABLE_SCHEMA = {
         {"name": "Function", "color": "green"}, {"name": "Wes", "color": "gray"},
     ]}},
     "Owner": {"rich_text": {}},
+    "Owner Email": {"email": {}},
+    "Submitted By": {"email": {}},
+    "Curation Status": {"select": {"options": [
+        {"name": "Proposed", "color": "yellow"}, {"name": "Approved", "color": "green"},
+        {"name": "Rejected", "color": "red"}, {"name": "Needs Changes", "color": "orange"},
+    ]}},
+    "Source Repository": {"url": {}},
+    "Repair Policy": {"select": {"options": [
+        {"name": "detect-only", "color": "gray"}, {"name": "safe-auto-heal", "color": "blue"},
+        {"name": "repair-pr", "color": "green"}, {"name": "critical-approval", "color": "red"},
+        {"name": "manual", "color": "orange"},
+    ]}},
+    "Test Command": {"rich_text": {}},
+    "Deployment Method": {"rich_text": {}},
+    "Rollback Method": {"rich_text": {}},
+    "Alert Target": {"rich_text": {}},
+    "Last Changed": {"date": {}},
     "Business Purpose": {"rich_text": {}},
     "Schedule": {"rich_text": {}},
     "URL": {"url": {}},
@@ -236,6 +253,27 @@ SCRIPT_SCHEMA = {
     "Failure Detail": {"rich_text": {}},
     "Cron Jobs": {"rich_text": {}},
     "Supports": {"rich_text": {}},
+    "Owner Email": {"email": {}},
+    "Source Repository": {"url": {}},
+    "Repair Policy": {"select": {"options": [
+        {"name": "detect-only", "color": "gray"}, {"name": "safe-auto-heal", "color": "blue"},
+        {"name": "repair-pr", "color": "green"}, {"name": "critical-approval", "color": "red"},
+        {"name": "manual", "color": "orange"},
+    ]}},
+    "Test Command": {"rich_text": {}},
+    "Deployment Method": {"rich_text": {}},
+    "Rollback Method": {"rich_text": {}},
+    "Alert Target": {"rich_text": {}},
+    "Incident Status": {"select": {"options": [
+        {"name": "None", "color": "gray"}, {"name": "Open", "color": "red"},
+        {"name": "Repairing", "color": "blue"}, {"name": "Awaiting Approval", "color": "yellow"},
+        {"name": "Approved", "color": "green"}, {"name": "Rejected", "color": "orange"},
+        {"name": "Resolved", "color": "green"}, {"name": "Retry", "color": "purple"},
+    ]}},
+    "Incident Key": {"rich_text": {}},
+    "Fix PR": {"url": {}},
+    "Last Repair Attempt": {"date": {}},
+    "Approval Instructions": {"rich_text": {}},
     "Source URL": {"url": {}},
     "Repository Managed": {"checkbox": {}},
     "Notes": {"rich_text": {}},
@@ -261,12 +299,23 @@ DELIVERABLES = [
 
 
 def deliverable_props(item: dict) -> dict:
+    owner_email = item.get("owner_email") or ("wes@procoffeegear.com" if "Wes" in item.get("owner", "") else "")
+    source_repo = item.get("source_repo") or (item.get("url", "") if "github.com/" in item.get("url", "") else "")
+    repair_policy = item.get("repair_policy") or ("manual" if item.get("status") == "Paused" else "repair-pr")
+    now = datetime.now(timezone.utc).isoformat()
     return {
         "Type": select(item["type"]), "Status": select(item["status"]), "Health": select(item["health"]),
         "Functions": multi(item["functions"]), "Audience": select(item["audience"]), "Owner": rt(item["owner"]),
+        "Owner Email": {"email": owner_email or None}, "Submitted By": {"email": owner_email or None},
+        "Curation Status": select(item.get("curation_status", "Approved")),
+        "Source Repository": url_prop(source_repo), "Repair Policy": select(repair_policy),
+        "Test Command": rt(item.get("test_command", "")),
+        "Deployment Method": rt(item.get("deployment_method", "")),
+        "Rollback Method": rt(item.get("rollback_method", "Revert the source change and redeploy.")),
+        "Alert Target": rt(item.get("alert_target", owner_email)), "Last Changed": date_prop(now),
         "Business Purpose": rt(item["purpose"]), "Schedule": rt(item["schedule"]), "URL": url_prop(item["url"]),
         "Job ID": rt(item["job"]), "Script Paths": rt(item["scripts"]),
-        "Last Verified": date_prop(datetime.now(timezone.utc).isoformat()),
+        "Last Verified": date_prop(now),
         "Visibility": select(item["visibility"]), "Notes": rt(item["notes"]),
     }
 
