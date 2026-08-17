@@ -24,13 +24,19 @@ FUNC_TO_PROFILE = {
     "LT":"lt", "Finance":"finance", "Operations":"operations", "Sales":"sales",
     "CS":"cs", "Product/Merch":"product", "Marketing/Growth":"marketing", "Company":"company",
 }
-# host-block key in honcho.json -> Notion Function.
-# "hermes" is the default profile; on a member box the default IS their LT view.
+# host-block key in honcho.json -> Notion function.
+# "hermes" is the default profile; on a member box the default's aiPeer = their Primary function.
 BLOCK_TO_FUNC = {
-    "hermes":"LT", "hermes_lt":"LT",
+    "hermes":"__default__",
+    "hermes_lt":"LT",
     "hermes_finance":"Finance", "hermes_operations":"Operations", "hermes_sales":"Sales",
     "hermes_cs":"CS", "hermes_product":"Product/Merch", "hermes_marketing":"Marketing/Growth",
     "hermes_company":"Company",
+}
+# aiPeer -> function label (for resolving the default profile's function)
+AIPEER_TO_FUNC = {
+    "exec":"LT", "finance":"Finance", "operations":"Operations", "sales":"Sales",
+    "cs":"CS", "product":"Product/Merch", "marketing":"Marketing/Growth", "company":"Company",
 }
 
 def notion_key():
@@ -59,6 +65,8 @@ def actual_active(honcho_path="/opt/data/honcho.json"):
         peer=b.get("aiPeer")
         func=BLOCK_TO_FUNC.get(k)
         if func and ws==WORKSPACE and peer:
+            if func == "__default__":
+                func = AIPEER_TO_FUNC.get(peer, peer)
             out.add(func)
     return sorted(out)
 
@@ -68,8 +76,23 @@ def requested_functions(email, key):
     if "error" in q or not q.get("results"):
         return None, None
     row=q["results"][0]
-    fns=[o["name"] for o in row["properties"]["Function"]["multi_select"]]
-    return row["id"], fns
+    props = row["properties"]
+    primary = (props.get("Primary",{}).get("select") or {}).get("name")
+    adjacent = [o["name"] for o in props.get("Adjacent",{}).get("multi_select",[])]
+    is_lt = bool(props.get("LT",{}).get("checkbox"))
+    # Fallback for rows not yet migrated: legacy Function multi-select
+    if not primary:
+        legacy = [o["name"] for o in props.get("Function",{}).get("multi_select",[])]
+        non_lt = [f for f in legacy if f != "LT"]
+        if non_lt:
+            primary = non_lt[0]
+        if "LT" in legacy:
+            is_lt = True
+    # expected = primary + LT (only if member) + adjacent
+    if not primary:
+        return row["id"], []
+    expected = [primary] + (["LT"] if is_lt else []) + [f for f in adjacent if f != "LT"]
+    return row["id"], expected
 
 def sync_check(requested, active):
     req,act=set(requested),set(active)
