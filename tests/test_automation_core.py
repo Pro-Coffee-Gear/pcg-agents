@@ -10,6 +10,7 @@ sys.path.insert(0, str(SCRIPTS))
 from pcg_automation_core import (  # noqa: E402
     classify_deliverable,
     approved_deliverables_from_rows,
+    group_repair_candidates,
     incident_key,
     incident_transition,
     is_safe_repo_restore,
@@ -207,6 +208,16 @@ test_command = "python3 -m unittest"
         selected = select_owner_notifications(rows, "wes@procoffeegear.com", set())
         self.assertEqual(["1"], [r["row_id"] for r in selected])
         self.assertEqual([], select_owner_notifications(rows, "wes@procoffeegear.com", {"k1"}))
+
+    def test_groups_same_repair_across_instances(self):
+        base = {"name": "a.py", "failure_detail": "SyntaxError line 4", "source_repo": "https://github.com/WWWPCG/pcg-agents", "health": "Failing", "repair_policy": "repair-pr", "incident_status": "Open", "fix_pr": ""}
+        grouped = group_repair_candidates([
+            {**base, "row_id": "r1", "instance": "box-a", "incident_key": "k1"},
+            {**base, "row_id": "r2", "instance": "box-b", "incident_key": "k2"},
+        ])
+        self.assertEqual(1, len(grouped))
+        self.assertEqual(["r1", "r2"], grouped[0]["row_ids"])
+        self.assertEqual(["box-a", "box-b"], grouped[0]["instances"])
 
     def test_selects_only_unassigned_repair_pr_failures(self):
         rows = [
