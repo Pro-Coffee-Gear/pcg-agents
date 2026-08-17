@@ -393,6 +393,38 @@ def upsert_script(ds_id: str, rows_by_name: dict[str, dict], result: dict,
         notion("/pages", "POST", {"parent": {"type": "data_source_id", "data_source_id": ds_id}, "properties": props})
 
 
+def test_prompt_jobs(jobs: list[dict]) -> list[dict]:
+    """Register prompt-only cron jobs (no script file) as first-class registry rows.
+
+    A cron job whose work is a bare prompt (no --script) is invisible to the
+    file-scan in test_scripts — but it's still a running automation that can
+    fail. Track it under a "job: <name>" row; health comes from schedule,
+    last-run status, and output-pattern checks only (coverage: Cron).
+    """
+    results = []
+    for job in jobs:
+        if job.get("script"):
+            continue  # script-backed jobs are tracked via their script file
+        name = job.get("name") or job.get("id") or "unnamed-job"
+        reg_name = f"job: {name}"
+        enabled = bool(job.get("enabled", True))
+        issues = job_issues(job) if enabled else []
+        health = ("Failing" if issues else "Healthy") if enabled else "Disabled"
+        results.append({
+            "name": reg_name,
+            "path": f"cron job (prompt-only): {name}",
+            "functions": ["Company"],
+            "criticality": criticality(name),
+            "health": health,
+            "coverage": ["Cron"],
+            "issues": issues,
+            "cron_names": name,
+            "supports": "",
+            "notes": "Prompt-only cron job (no script file). Health from schedule, last-run status, and output checks.",
+        })
+    return results
+
+
 def test_scripts(jobs: list[dict], deps: dict[str, tuple[bool, str]]) -> list[dict]:
     by_script: dict[str, list[dict]] = {}
     for job in jobs:
@@ -575,6 +607,7 @@ def main() -> int:
     }
     script_rows = {title_value(r): r for r in query_rows(script_ds)}
     script_results = test_scripts(jobs, deps)
+    script_results.extend(test_prompt_jobs(jobs))
     present = {r["name"] for r in script_results}
     # A previously registered script disappearing is itself a failure. This
     # catches broken syncs and accidental deletions rather than letting the row
@@ -586,6 +619,16 @@ def main() -> int:
         if row_instance != INSTANCE or script_file in present or script_file.startswith("_"):
             continue
         fallback_owner = INSTANCE if "@" in INSTANCE else "wes@procoffeegear.com"
+        if script_file.startswith("job:"):
+            # Prompt-only job removed from the cron schedule — no file to restore.
+            # Mark Disabled so the row goes quiet instead of paging as a missing script.
+            if (props.get("Health", {}).get("select") or {}).get("name") != "Disabled":
+                notion(f"/pages/{row['id']}", "PATCH", {"properties": {
+                    "Health": select("Disabled"),
+                    "Notes": rich("Cron job no longer present in the schedule (deleted or renamed). Remove this registry row manually if intentional."),
+                    "Last Checked": date(NOW.isoformat()),
+                }})
+            continue
         policy = policy_for(script_file, policies, fallback_owner)
         if safe_restore_script(script_file, policy):
             script_results.append({
