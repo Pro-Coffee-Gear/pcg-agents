@@ -322,6 +322,8 @@ def test_scripts(jobs: list[dict], deps: dict[str, tuple[bool, str]]) -> list[di
             by_script.setdefault(script, []).append(job)
     results = []
     for path in sorted(SCRIPTS_DIR.glob("*.py")):
+        if path.name.startswith("_"):
+            continue  # local build/test scratch files are not production registry items
         name = path.name
         issues, coverage = [], ["Syntax"]
         try:
@@ -459,6 +461,27 @@ def main() -> int:
     }
     script_rows = {title_value(r): r for r in query_rows(script_ds)}
     script_results = test_scripts(jobs, deps)
+    present = {r["name"] for r in script_results}
+    # A previously registered script disappearing is itself a failure. This
+    # catches broken syncs and accidental deletions rather than letting the row
+    # silently retain its last green status.
+    for display_name, row in script_rows.items():
+        props = row.get("properties", {})
+        row_instance = text_value(props.get("Instance", {})) or "exec-default"
+        script_file = text_value(props.get("Script File", {})) or display_name
+        if row_instance != INSTANCE or script_file in present or script_file.startswith("_"):
+            continue
+        script_results.append({
+            "name": script_file,
+            "path": text_value(props.get("Path", {})),
+            "functions": script_functions(script_file),
+            "criticality": (props.get("Criticality", {}).get("select") or {}).get("name") or criticality(script_file),
+            "health": "Failing", "coverage": ["Syntax"],
+            "issues": [f"script missing from instance {INSTANCE}"],
+            "cron_names": text_value(props.get("Cron Jobs", {})),
+            "supports": text_value(props.get("Supports", {})),
+            "notes": "Previously registered script is no longer present on disk.",
+        })
     for result in script_results:
         upsert_script(script_ds, script_rows, result)
     if IS_CONTROL_PLANE:
