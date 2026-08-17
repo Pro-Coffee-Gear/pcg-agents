@@ -74,7 +74,13 @@
       .intro-grid { display:none; }
       .exec-summary { margin-top:.45rem; }
       .exec-summary h2 { font-size:1.12rem; }
-      .exec-thesis { font-size:.7rem; }
+      .exec-thesis { font-size:.7rem; line-height:1.45; }
+      .why-grid { margin-top:.6rem; gap:.6rem; }
+      .why-card { padding:.62rem; }
+      .why-card p { line-height:1.4; }
+      .build-band { margin-top:.55rem; padding:.55rem .7rem; }
+      .compound-row { margin-top:.55rem; gap:.6rem; }
+      .exec-close { margin-top:.5rem; }
       .diagram-section { break-before:page; page-break-before:always; margin-top:0; }
       .diagram-section.first { break-before:auto; page-break-before:auto; }
       .diagram-container { padding:.45rem; break-inside:avoid; page-break-inside:avoid; }
@@ -99,8 +105,8 @@
   <!-- ================= EXECUTIVE SUMMARY ================= -->
   <section class="exec-summary">
     <div class="exec-kicker">EXECUTIVE SUMMARY · WHY THIS MATTERS</div>
-    <h2>Turn what Pro Coffee Gear learns into systems the whole company can reuse</h2>
-    <p class="exec-thesis">PCG already produces valuable knowledge every day: why a return happened, which vendor issue keeps recurring, what customers object to, where margin leaks, and which manual process slows a team down. Today, much of that knowledge lives in individual heads, scattered conversations, or one-off fixes. This architecture gives each function a persistent memory and the ability to turn what it learns into working tools, while keeping human ownership, permissions, source code, and health visible.</p>
+    <h2>Give every manager the power to build and continually improve the systems their function runs on</h2>
+    <p class="exec-thesis">PCG already produces valuable knowledge every day: why a return happened, which vendor issue keeps recurring, what customers object to, where margin leaks, and which manual process slows a team down. Today that knowledge is spent twice: once living the problem, and again translating it — into instructions for someone running a manual workflow, or a spec for a developer who wasn't there. This architecture removes the translation step: the manager who understands the problem works directly with an agent that remembers the function's history, builds the fix as a real system, and keeps improving it — with ownership, permissions, source code, and health visible.</p>
 
     <div class="why-grid">
       <article class="why-card">
@@ -108,12 +114,12 @@
         <p>Honcho gives the function a shared memory of PCG's rules, systems, exceptions, prior decisions, and recurring failure patterns. A new project starts with accumulated context instead of a blank chat. A new teammate can inherit the team's operating knowledge while each contributor remains identifiable and raw chats are not copied into a shared feed.</p>
       </article>
       <article class="why-card">
-        <h3><span class="card-dot" style="background:var(--amber)"></span>The distance from problem to tool shrinks</h3>
-        <p>Hermes gives each teammate a private builder that can help diagnose a problem, draft the workflow, write the script, build the dashboard, test it, and prepare it for deployment. GitHub preserves the source and rollback path. Cloudflare can publish approved tools at a live URL. Notion records the owner, audience, status, and health.</p>
+        <h3><span class="card-dot" style="background:var(--amber)"></span>Managers solve their own problems — no translation loss</h3>
+        <p>Hermes gives each teammate a private builder. The person who owns the problem diagnoses it, drafts the workflow, writes the script, builds the dashboard, and tests it in one conversation — no handoff, no requirements document, no waiting on someone else's queue. GitHub preserves the source and rollback path. Cloudflare can publish approved tools at a live URL. Notion records the owner, audience, status, and health.</p>
       </article>
       <article class="why-card">
-        <h3><span class="card-dot" style="background:var(--green)"></span>Improvements compound across the company</h3>
-        <p>Each useful conversation improves the function brain. Successful skills and scripts can be published for the next eligible teammate. Material lessons can reach LT through summaries instead of raw-chat replication. The next person starts from the last person's progress, so PCG keeps more of the value created by every investigation, decision, and build.</p>
+        <h3><span class="card-dot" style="background:var(--green)"></span>Systems keep improving instead of decaying</h3>
+        <p>A system built this way is never finished — it is versioned. When reality changes (a new vendor quirk, a failure pattern, a better rule), the owner tells the agent and the tool is updated the same day. Useful skills and scripts publish forward to the next eligible teammate; material lessons reach LT through summaries. The next person starts from the last person's progress.</p>
       </article>
     </div>
 
@@ -132,7 +138,7 @@
     <div class="compound-row">
       <div class="compound-box">
         <h3>The compounding loop</h3>
-        <p>Work creates conversations. Conversations create memory. Memory improves the next diagnosis and build. Approved builds become versioned tools. Their results create new evidence; when the team reviews that evidence with the agent, the lesson enters memory and improves the next cycle. PCG's own operating history becomes part of how future work gets done.</p>
+        <p>Work creates conversations. Conversations create memory. Memory improves the next diagnosis and build. Approved builds become versioned systems whose results create new evidence; when the team reviews that evidence with the agent, the lesson enters memory and the system gets upgraded. The tenth tool a function builds ships faster and fits better than the first, because it starts from everything the function has already learned.</p>
       </div>
       <div class="guardrail-box">
         <h3>Builder capacity with clear ownership</h3>
@@ -140,7 +146,7 @@
       </div>
     </div>
 
-    <p class="exec-close">The durable advantage is a company that gets better at turning what it learns into tools, and keeps those gains when the next problem, project, or teammate arrives.</p>
+    <p class="exec-close">The durable advantage: managers who build and continually improve their own systems on compounding knowledge — gains PCG keeps when the next problem, project, or teammate arrives.</p>
   </section>
 
   <div class="intro-grid">
@@ -704,7 +710,7 @@
     <p><strong>What if onboarding shows ⚠️ Mismatch?</strong><br>Compare Requested versus Active Profiles in the roster. Do not repeatedly rerun onboarding; send the mismatch detail to the system owner so the failed step can be diagnosed.</p>
   </section>
 
-  <p class="footer">Pro Coffee Gear • Agent System Guide • v2.3 • Source of truth: private pcg-agents repo + Notion control boards</p>
+  <p class="footer">Pro Coffee Gear • Agent System Guide • v2.4 • Source of truth: private pcg-agents repo + Notion control boards</p>
 </div>
 </body>
 </html>
