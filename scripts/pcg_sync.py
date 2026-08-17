@@ -341,5 +341,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-# self-update probe 2026-08-17
