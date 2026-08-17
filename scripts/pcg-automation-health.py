@@ -20,6 +20,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+sys.path.insert(0, str(HERMES_HOME / "scripts"))
+from pcg_automation_core import (incident_transition, is_safe_repo_restore,
+                                 parse_health_toml, policy_for)  # noqa: E402
+
 HERMES_BIN = os.environ.get("HERMES_BIN", "/opt/hermes/.venv/bin/hermes")
 SCRIPTS_DIR = HERMES_HOME / "scripts"
 REGISTRY_FILE = HERMES_HOME / ".pcg_automation_registry.json"
@@ -101,6 +105,54 @@ def notion(path: str, method: str = "GET", body: dict | None = None) -> dict:
     )
     with urllib.request.urlopen(req, timeout=45) as r:
         return json.load(r)
+
+
+def load_health_policies() -> dict[str, dict]:
+    local = HERMES_HOME / "health.toml"
+    if local.exists():
+        try:
+            return parse_health_toml(local.read_text())
+        except Exception:
+            pass
+    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+    if not token:
+        return {}
+    req = urllib.request.Request(
+        "https://api.github.com/repos/WWWPCG/pcg-agents/contents/health.toml",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.raw"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return parse_health_toml(r.read().decode())
+    except Exception:
+        return {}
+
+
+def safe_restore_script(name: str, policy: dict) -> bool:
+    """Restore a missing pcg-agents script only after validating path and syntax."""
+    if not is_safe_repo_restore(name, policy):
+        return False
+    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+    if not token:
+        return False
+    source_path = policy["source_path"]
+    req = urllib.request.Request(
+        f"https://api.github.com/repos/WWWPCG/pcg-agents/contents/{source_path}",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.raw"},
+    )
+    tmp = SCRIPTS_DIR / f".{name}.health-restore.tmp"
+    dest = SCRIPTS_DIR / name
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = r.read()
+        tmp.write_bytes(data)
+        py_compile.compile(str(tmp), doraise=True)
+        os.replace(tmp, dest)
+        return True
+    except Exception:
+        if tmp.exists():
+            tmp.unlink()
+        return False
 
 
 def gh_probe() -> tuple[bool, str]:
@@ -287,15 +339,31 @@ def criticality(name: str) -> str:
     return "Normal"
 
 
-def upsert_script(ds_id: str, rows_by_name: dict[str, dict], result: dict) -> None:
+def upsert_script(ds_id: str, rows_by_name: dict[str, dict], result: dict,
+                  policies: dict[str, dict]) -> None:
     name = result["name"]
     display_name = name if IS_CONTROL_PLANE else f"{name} — {INSTANCE}"
     existing = rows_by_name.get(display_name)
     old_last_success = old_last_failure = None
+    old_health, existing_key, existing_status, existing_pr, existing_approval = "Unknown", "", "None", "", ""
     if existing:
-        props = existing.get("properties", {})
-        old_last_success = ((props.get("Last Success", {}).get("date") or {}).get("start"))
-        old_last_failure = ((props.get("Last Failure", {}).get("date") or {}).get("start"))
+        old_props = existing.get("properties", {})
+        old_last_success = ((old_props.get("Last Success", {}).get("date") or {}).get("start"))
+        old_last_failure = ((old_props.get("Last Failure", {}).get("date") or {}).get("start"))
+        old_health = (old_props.get("Health", {}).get("select") or {}).get("name") or "Unknown"
+        existing_key = text_value(old_props.get("Incident Key", {}))
+        existing_status = (old_props.get("Incident Status", {}).get("select") or {}).get("name") or "None"
+        existing_pr = old_props.get("Fix PR", {}).get("url") or ""
+        existing_approval = text_value(old_props.get("Approval Instructions", {}))
+    failure_detail = "; ".join(result["issues"])
+    transition = incident_transition(old_health, result["health"], INSTANCE, name,
+                                     failure_detail, existing_key, existing_status)
+    if transition["incident_key"] != existing_key and transition["incident_status"] == "Open":
+        existing_pr, existing_approval = "", ""
+    fallback_owner = INSTANCE if "@" in INSTANCE else "wes@procoffeegear.com"
+    policy = policy_for(name, policies, fallback_owner)
+    if transition["incident_status"] == "Open" and policy["repair_policy"] == "repair-pr":
+        existing_approval = "Repair agent may open a tested PR, but the owner must approve/merge it."
     last_success = NOW.isoformat() if result["health"] == "Healthy" else old_last_success
     last_failure = NOW.isoformat() if result["health"] == "Failing" else old_last_failure
     props = {
@@ -304,9 +372,20 @@ def upsert_script(ds_id: str, rows_by_name: dict[str, dict], result: dict) -> No
         "Criticality": select(result["criticality"]), "Health": select(result["health"]),
         "Test Coverage": multi(result["coverage"]), "Last Checked": date(NOW.isoformat()),
         "Last Success": date(last_success), "Last Failure": date(last_failure),
-        "Failure Detail": rich("; ".join(result["issues"])), "Cron Jobs": rich(result["cron_names"]),
-        "Supports": rich(result["supports"]), "Source URL": {"url": source_url(name)},
-        "Repository Managed": checkbox(name.startswith("pcg-")), "Notes": rich(result["notes"]),
+        "Failure Detail": rich(failure_detail), "Cron Jobs": rich(result["cron_names"]),
+        "Supports": rich(result["supports"]),
+        "Source URL": {"url": source_url(name) if policy["source_repo"] else None},
+        "Owner Email": {"email": policy["owner_email"] or None},
+        "Source Repository": {"url": policy["source_repo"] or None},
+        "Repair Policy": select(policy["repair_policy"]),
+        "Test Command": rich(policy["test_command"]),
+        "Deployment Method": rich(policy["deployment_method"]),
+        "Rollback Method": rich(policy["rollback_method"]),
+        "Alert Target": rich(policy["alert_target"]),
+        "Incident Status": select(transition["incident_status"]),
+        "Incident Key": rich(transition["incident_key"]), "Fix PR": {"url": existing_pr or None},
+        "Approval Instructions": rich(existing_approval),
+        "Repository Managed": checkbox(bool(policy["source_repo"])), "Notes": rich(result["notes"]),
     }
     if existing:
         notion(f"/pages/{existing['id']}", "PATCH", {"properties": props})
@@ -455,6 +534,7 @@ def main() -> int:
     script_ds = reg["scripts"]["data_source_id"]
     deliverable_ds = reg["deliverables"]["data_source_id"]
     jobs = load_jobs()
+    policies = load_health_policies()
     deps = {
         "front": front_probe(), "notion": notion_probe(), "github": gh_probe(),
         "dashboard": url_probe("https://open-box-dashboard.wes-34f.workers.dev"),
@@ -471,6 +551,18 @@ def main() -> int:
         script_file = text_value(props.get("Script File", {})) or display_name
         if row_instance != INSTANCE or script_file in present or script_file.startswith("_"):
             continue
+        fallback_owner = INSTANCE if "@" in INSTANCE else "wes@procoffeegear.com"
+        policy = policy_for(script_file, policies, fallback_owner)
+        if safe_restore_script(script_file, policy):
+            script_results.append({
+                "name": script_file, "path": str(SCRIPTS_DIR / script_file),
+                "functions": script_functions(script_file), "criticality": criticality(script_file),
+                "health": "Healthy", "coverage": ["Syntax", "Dependency"], "issues": [],
+                "cron_names": text_value(props.get("Cron Jobs", {})),
+                "supports": text_value(props.get("Supports", {})),
+                "notes": "Safe auto-heal restored the missing script from pcg-agents after validating syntax.",
+            })
+            continue
         script_results.append({
             "name": script_file,
             "path": text_value(props.get("Path", {})),
@@ -483,7 +575,7 @@ def main() -> int:
             "notes": "Previously registered script is no longer present on disk.",
         })
     for result in script_results:
-        upsert_script(script_ds, script_rows, result)
+        upsert_script(script_ds, script_rows, result, policies)
     if IS_CONTROL_PLANE:
         deliverable_results = update_deliverables(deliverable_ds, jobs, deps)
     else:
