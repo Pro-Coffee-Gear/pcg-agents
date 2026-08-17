@@ -9,12 +9,14 @@ sys.path.insert(0, str(SCRIPTS))
 
 from pcg_automation_core import (  # noqa: E402
     classify_deliverable,
+    approved_deliverables_from_rows,
     incident_key,
     incident_transition,
     is_safe_repo_restore,
     parse_deliverables_toml,
     parse_health_toml,
     policy_for,
+    render_deliverables_toml,
     script_row_to_incident,
     select_owner_notifications,
     select_repair_candidates,
@@ -48,6 +50,27 @@ class DeliverableCoreTests(unittest.TestCase):
         meaningful, reasons = classify_deliverable(proposal)
         self.assertFalse(meaningful)
         self.assertEqual([], reasons)
+
+    def test_approved_notion_rows_render_as_round_trip_manifest(self):
+        approved = {
+            "id": "p1",
+            "properties": {
+                "Name": {"type": "title", "title": [{"plain_text": "Front filter"}]},
+                "Curation Status": {"type": "select", "select": {"name": "Approved"}},
+                "Type": {"type": "select", "select": {"name": "Scheduled Automation"}},
+                "Owner Email": {"type": "email", "email": "wes@procoffeegear.com"},
+                "Business Purpose": {"type": "rich_text", "rich_text": [{"plain_text": "Filter recurring inbox noise"}]},
+                "Functions": {"type": "multi_select", "multi_select": [{"name": "CS"}]},
+                "Repair Policy": {"type": "select", "select": {"name": "repair-pr"}},
+            },
+        }
+        proposed = {"id": "p2", "properties": {"Name": {"type": "title", "title": [{"plain_text": "Draft"}]}, "Curation Status": {"type": "select", "select": {"name": "Proposed"}}}}
+        items = approved_deliverables_from_rows([proposed, approved])
+        self.assertEqual(["Front filter"], [x["name"] for x in items])
+        rendered = render_deliverables_toml(items)
+        parsed = parse_deliverables_toml(rendered)
+        self.assertEqual("Front filter", parsed[0]["name"])
+        self.assertEqual(["CS"], parsed[0]["functions"])
 
     def test_parses_deliverables_manifest(self):
         text = '''
