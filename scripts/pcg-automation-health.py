@@ -603,7 +603,7 @@ def main() -> int:
     policies = load_health_policies()
     deps = {
         "front": front_probe(), "notion": notion_probe(), "github": gh_probe(),
-        "dashboard": url_probe("https://open-box-dashboard.wes-34f.workers.dev"),
+        "dashboard": url_probe("https://open-box-dashboard.wes-34f.workers.dev/api/diagnostics"),
     }
     script_rows = {title_value(r): r for r in query_rows(script_ds)}
     script_results = test_scripts(jobs, deps)
