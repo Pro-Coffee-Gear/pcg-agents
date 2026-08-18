@@ -3,7 +3,7 @@
 pcg_onboard.py — One-command onboarding for a Pro Coffee Gear team member's box.
 
 Run this ON THE NEW MEMBER'S BOX. It:
-  1. Stores the Honcho + Notion keys into this box's .env (so the box can reach the shared brain).
+  1. Stores the Honcho, Notion, and read-only GitHub sync keys into this box's .env.
   2. Looks the person up in the Notion roster by --email.
   3. Reads their Primary (single-select) + Adjacent (multi-select) -> the profiles they should have.
   4. Creates those Hermes profiles (idempotent - skips any that already exist).
@@ -18,7 +18,7 @@ Model (post-2026-08-16 redesign):
   - The legacy 'Function' column is a fallback: first non-LT entry -> Primary; 'LT' in it -> LT member.
 
 Usage (keys come from Wes, in the personalized command):
-  HONCHO_API_KEY=... NOTION_API_KEY=... python3 pcg_onboard.py --email you@procoffeegear.com [--name "Your Name"]
+  GITHUB_SYNC_TOKEN=... HONCHO_API_KEY=... NOTION_API_KEY=... python3 pcg_onboard.py --email you@procoffeegear.com [--name "Your Name"]
   ...  --dry-run     # show what WOULD happen, create nothing
 """
 import json, os, sys, subprocess, argparse, urllib.request
@@ -82,15 +82,16 @@ def roster_row(email, key):
     return row["id"], primary, adjacent, is_lt
 
 # ---------- .env ----------
-def store_keys(honcho_key, notion_key):
+def store_keys(honcho_key, notion_key, github_sync_token):
     env_path=os.path.join(HERMES_HOME, ".env")
     existing=b""
     if os.path.exists(env_path):
         with open(env_path,"rb") as f: existing=f.read()
     text=existing.decode("utf-8","ignore")
-    lines=[l for l in text.splitlines() if not l.startswith(("HONCHO_API_KEY","NOTION_API_KEY"))]
+    lines=[l for l in text.splitlines() if not l.startswith(("HONCHO_API_KEY","NOTION_API_KEY","GITHUB_SYNC_TOKEN"))]
     if honcho_key: lines.append(f"HONCHO_API_KEY={honcho_key}")
     if notion_key: lines.append(f"NOTION_API_KEY={notion_key}")
+    if github_sync_token: lines.append(f"GITHUB_SYNC_TOKEN={github_sync_token}")
     with open(env_path,"wb") as f: f.write(("\n".join(lines)+"\n").encode())
     log(f"  stored keys in {env_path}")
 
@@ -117,7 +118,10 @@ def write_honcho(primary, adjacent, is_lt, peer_name, honcho_key, notion_key, dr
     if os.path.exists(hpath):
         try: conf=json.load(open(hpath))
         except: conf={}
-    conf.setdefault("apiKey", honcho_key)
+    # This is a dedicated PCG member box. The supplied shared-workspace key must
+    # replace any Portal/default key already present, otherwise the host blocks
+    # point at procoffeegear using credentials for a different workspace.
+    conf["apiKey"]=honcho_key
     conf["workspace"]=WORKSPACE
     conf["environment"]=HONCHO_ENV
     conf["peerName"]=peer_name
@@ -583,8 +587,9 @@ def main():
 
     honcho_key=(os.environ.get("HONCHO_API_KEY") or "").strip()
     notion_key=(os.environ.get("NOTION_API_KEY") or "").strip()
-    if not honcho_key or not notion_key:
-        log("ERROR: HONCHO_API_KEY and NOTION_API_KEY must be set (they're in the command Wes gave you).")
+    github_sync_token=(os.environ.get("GITHUB_SYNC_TOKEN") or "").strip()
+    if not honcho_key or not notion_key or not github_sync_token:
+        log("ERROR: GITHUB_SYNC_TOKEN, HONCHO_API_KEY, and NOTION_API_KEY must be set (they're in the command Wes gave you).")
         sys.exit(2)
 
     peer_name = args.name or args.email.split("@")[0].lower().replace(".","-")
@@ -593,7 +598,7 @@ def main():
 
     # 1. keys
     log("[1/7] storing keys")
-    if not args.dry_run: store_keys(honcho_key, notion_key)
+    if not args.dry_run: store_keys(honcho_key, notion_key, github_sync_token)
     else: log("  [dry] would store keys in .env")
 
     # 2. roster lookup
