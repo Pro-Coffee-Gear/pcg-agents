@@ -8,6 +8,7 @@ periodic failure reminders. Empty stdout means healthy/no change.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import py_compile
@@ -15,6 +16,7 @@ import re
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -473,44 +475,116 @@ def test_scripts(jobs: list[dict], deps: dict[str, tuple[bool, str]]) -> list[di
     return results
 
 
-def deliverable_health(row: dict, jobs_by_id: dict[str, dict], deps: dict[str, tuple[bool, str]]) -> tuple[str, list[str]]:
+def is_public_https_url(url: str) -> bool:
+    parsed = urllib.parse.urlsplit(url)
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not hostname:
+        return False
+    if hostname == "localhost" or hostname.endswith((".local", ".internal")):
+        return False
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        return True
+    return address.is_global
+
+
+def deliverable_health(
+    row: dict,
+    jobs_by_id: dict[str, dict],
+    deps: dict[str, tuple[bool, str]],
+    script_health_by_id: dict[str, str] | None = None,
+) -> tuple[str, list[str]]:
     props = row.get("properties", {})
     name = title_value(row)
     status = (props.get("Status", {}).get("select") or {}).get("name")
     if status == "Paused":
         return "Paused", []
     issues = []
+    observed = False
     job_text = text_value(props.get("Job ID", {}))
     ids = re.findall(r"[0-9a-f]{12}", job_text)
     for jid in ids:
+        observed = True
         job = jobs_by_id.get(jid)
         if not job:
             issues.append(f"job {jid} not found")
         else:
             issues.extend(job_issues(job))
-    if name.startswith("Front ") and not deps["front"][0]:
-        issues.append(deps["front"][1] or "Front live probe failed")
-    if name in {"Agent Team Roster & Onboarding"} and not deps["notion"][0]:
-        issues.append(deps["notion"][1])
-    if name in {"Agent Team Roster & Onboarding", "Fleet Skills, Scripts & Jobs Distribution", "Shared Function Skills Library"} and not deps["github"][0]:
-        issues.append(deps["github"][1])
-    if name == "Open-box Returns Dashboard" and not deps["dashboard"][0]:
-        issues.append(deps["dashboard"][1])
+
+    script_health_by_id = script_health_by_id or {}
+    for relation in props.get("Scripts", {}).get("relation", []):
+        observed = True
+        related_health = script_health_by_id.get(relation.get("id"), "Unknown")
+        if related_health != "Healthy":
+            issues.append(f"related script is {related_health}")
+
+    if name.startswith("Front "):
+        observed = True
+        if not deps["front"][0]:
+            issues.append(deps["front"][1] or "Front live probe failed")
+    if name in {"Agent Team Roster & Onboarding"}:
+        observed = True
+        if not deps["notion"][0]:
+            issues.append(deps["notion"][1])
+    if name in {"Agent Team Roster & Onboarding", "Fleet Skills, Scripts & Jobs Distribution", "Shared Function Skills Library"}:
+        observed = True
+        if not deps["github"][0]:
+            issues.append(deps["github"][1])
+    if name == "Open-box Returns Dashboard":
+        observed = True
+        if not deps["dashboard"][0]:
+            issues.append(deps["dashboard"][1])
+
+    kind = (props.get("Type", {}).get("select") or {}).get("name")
+    url = props.get("URL", {}).get("url") or ""
+    if url and kind == "App / Dashboard" and name != "Open-box Returns Dashboard":
+        observed = True
+        if not is_public_https_url(url):
+            issues.append("URL health check must use a public HTTPS endpoint")
+        else:
+            ok, detail = url_probe(url)
+            if not ok:
+                issues.append(detail or "URL probe failed")
+
     if issues:
         # Configuration drift is a warning; execution/dependency failures are failing.
         only_config = all("stale Windows path" in x for x in issues)
         return ("Warning" if only_config else "Failing"), list(dict.fromkeys(issues))
+    if not observed:
+        return "Unknown", ["No health check configured"]
     return "Healthy", []
 
 
-def update_deliverables(ds_id: str, jobs: list[dict], deps: dict[str, tuple[bool, str]]) -> dict[str, dict]:
+def update_deliverables(
+    ds_id: str,
+    script_ds_id: str,
+    jobs: list[dict],
+    deps: dict[str, tuple[bool, str]],
+) -> dict[str, dict]:
     results = {}
-    jobs_by_id = {j.get("id") or j.get("job_id"): j for j in jobs}
+    jobs_by_id = {
+        key: job
+        for job in jobs
+        if (key := job.get("id") or job.get("job_id"))
+    }
+    script_health_by_id = {
+        row["id"]: ((row.get("properties", {}).get("Health", {}).get("select") or {}).get("name") or "Unknown")
+        for row in query_rows(script_ds_id)
+    }
     for row in query_rows(ds_id):
         name = title_value(row)
-        health, issues = deliverable_health(row, jobs_by_id, deps)
-        notion(f"/pages/{row['id']}", "PATCH", {"properties": {
-            "Health": select(health), "Last Verified": date(NOW.isoformat())}})
+        props = row.get("properties", {})
+        health, issues = deliverable_health(row, jobs_by_id, deps, script_health_by_id)
+        updates = {
+            "Health": select(health),
+            "Last Verified": date(NOW.isoformat() if health in {"Healthy", "Warning", "Failing"} else None),
+        }
+        alert_target = text_value(props.get("Alert Target", {})).strip()
+        owner_email = props.get("Owner Email", {}).get("email") or ""
+        if not alert_target and owner_email:
+            updates["Alert Target"] = rich(owner_email)
+        notion(f"/pages/{row['id']}", "PATCH", {"properties": updates})
         results[name] = {"health": health, "issues": issues}
     return results
 
@@ -655,7 +729,7 @@ def main() -> int:
         upsert_script(script_ds, script_rows, result, policies)
     if IS_CONTROL_PLANE:
         sync_links(deliverable_ds, script_ds)
-        deliverable_results = update_deliverables(deliverable_ds, jobs, deps)
+        deliverable_results = update_deliverables(deliverable_ds, script_ds, jobs, deps)
     else:
         deliverable_results = {}
     changed = alerts(script_results, deliverable_results)

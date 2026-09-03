@@ -59,8 +59,9 @@ CODING_POLICY = """Whenever you create or materially update a durable PCG work p
 register or update its Proposed row in Business Automations & Deliverables before
 reporting completion. Run /opt/data/scripts/pcg-register-deliverable.py with the known
 owner, functions, purpose, source, test, deployment, and rollback metadata; leave unknown
-fields blank rather than inventing them. Only temporary scratch and throwaway test
-fixtures are exempt."""
+fields blank rather than inventing them. Alert Target defaults to the owner email. Health
+must remain Unknown until a real URL, script, job, or named dependency check runs. Only
+temporary scratch and throwaway test fixtures are exempt."""
 
 
 def is_repo_managed(rel):

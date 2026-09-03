@@ -134,6 +134,71 @@ class DeliverablePublisherTests(unittest.TestCase):
         self.assertEqual("Proposed", props["Curation Status"]["select"]["name"])
         self.assertEqual("sina@procoffeegear.com", props["Owner Email"]["email"])
 
+    def test_blank_alert_target_defaults_to_owner_and_starts_unverified(self):
+        module = self.load_module()
+        proposal = {
+            "name": "CS dashboard", "type": "App / Dashboard",
+            "purpose": "Shared CS view", "owner_email": "tasha@procoffeegear.com",
+            "submitted_by": "tasha@procoffeegear.com", "function": ["CS"],
+            "alert_target": "",
+        }
+        props = module.build_properties(proposal)
+        alert = "".join(x["text"]["content"] for x in props["Alert Target"]["rich_text"])
+        self.assertEqual("tasha@procoffeegear.com", alert)
+        self.assertEqual("Unknown", props["Health"]["select"]["name"])
+        self.assertIsNone(props["Last Verified"]["date"])
+
+    def test_cli_omits_optional_defaults_when_updating(self):
+        module = self.load_module()
+        old_argv = sys.argv
+        sys.argv = ["pcg-register-deliverable.py", "--name", "CS dashboard",
+                    "--purpose", "Shared CS view", "--owner-email", "tasha@procoffeegear.com",
+                    "--function", "CS", "--type", "App / Dashboard"]
+        try:
+            args = module.parse_args()
+        finally:
+            sys.argv = old_argv
+        self.assertIsNone(args.audience)
+        self.assertIsNone(args.visibility)
+        self.assertIsNone(args.schedule)
+        self.assertIsNone(args.repair_policy)
+
+    def test_update_preserves_existing_health_and_explicit_alert_target(self):
+        module = self.load_module()
+        proposal = {
+            "name": "CS dashboard", "type": "App / Dashboard",
+            "purpose": "Shared CS view", "owner_email": "tasha@procoffeegear.com",
+            "submitted_by": "tasha@procoffeegear.com", "function": ["CS"],
+            "alert_target": "",
+        }
+        existing = {"properties": {
+            "Curation Status": {"select": {"name": "Approved"}},
+            "Status": {"select": {"name": "Live"}},
+            "Health": {"select": {"name": "Healthy"}},
+            "Audience": {"select": {"name": "Company"}},
+            "Visibility": {"select": {"name": "Team"}},
+            "Repair Policy": {"select": {"name": "repair-pr"}},
+            "Alert Target": {"rich_text": [{"plain_text": "slack:#cs-alerts"}]},
+            "Schedule": {"rich_text": [{"plain_text": "Every 15 minutes"}]},
+            "Test Command": {"rich_text": [{"plain_text": "python3 healthcheck.py"}]},
+            "URL": {"url": "https://dashboard.example.com/health"},
+            "Source Repository": {"url": "https://github.com/WWWPCG/cs-dashboard"},
+            "Last Verified": {"date": {"start": "2026-09-03T12:00:00+00:00"}},
+        }}
+        props = module.build_properties(proposal, existing)
+        alert = "".join(x["text"]["content"] for x in props["Alert Target"]["rich_text"])
+        self.assertEqual("Live", props["Status"]["select"]["name"])
+        self.assertEqual("Healthy", props["Health"]["select"]["name"])
+        self.assertEqual("Company", props["Audience"]["select"]["name"])
+        self.assertEqual("Team", props["Visibility"]["select"]["name"])
+        self.assertEqual("repair-pr", props["Repair Policy"]["select"]["name"])
+        self.assertEqual("Every 15 minutes", props["Schedule"]["rich_text"][0]["text"]["content"])
+        self.assertEqual("python3 healthcheck.py", props["Test Command"]["rich_text"][0]["text"]["content"])
+        self.assertEqual("https://dashboard.example.com/health", props["URL"]["url"])
+        self.assertEqual("https://github.com/WWWPCG/cs-dashboard", props["Source Repository"]["url"])
+        self.assertEqual("slack:#cs-alerts", alert)
+        self.assertEqual("2026-09-03T12:00:00+00:00", props["Last Verified"]["date"]["start"])
+
     def test_update_does_not_downgrade_approved_deliverable(self):
         module = self.load_module()
         proposal = {
@@ -144,6 +209,79 @@ class DeliverablePublisherTests(unittest.TestCase):
         existing = {"properties": {"Curation Status": {"select": {"name": "Approved"}}}}
         props = module.build_properties(proposal, existing)
         self.assertEqual("Approved", props["Curation Status"]["select"]["name"])
+
+
+class DeliverableHealthTests(unittest.TestCase):
+    def load_module(self):
+        path = SCRIPTS / "pcg-automation-health.py"
+        spec = importlib.util.spec_from_file_location("pcg_automation_health", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    @staticmethod
+    def deps():
+        return {key: (True, "") for key in ("front", "notion", "github", "dashboard")}
+
+    @staticmethod
+    def row(name="New dashboard", url=None, scripts=None):
+        return {"id": "d1", "properties": {
+            "Name": {"type": "title", "title": [{"plain_text": name}]},
+            "Type": {"type": "select", "select": {"name": "App / Dashboard"}},
+            "Status": {"type": "select", "select": {"name": "Building"}},
+            "URL": {"type": "url", "url": url},
+            "Job ID": {"type": "rich_text", "rich_text": []},
+            "Scripts": {"type": "relation", "relation": scripts or []},
+            "Owner Email": {"type": "email", "email": "tasha@procoffeegear.com"},
+            "Alert Target": {"type": "rich_text", "rich_text": []},
+        }}
+
+    def test_deliverable_without_a_health_signal_is_unknown(self):
+        module = self.load_module()
+        health, issues = module.deliverable_health(self.row(), {}, self.deps(), {})
+        self.assertEqual("Unknown", health)
+        self.assertEqual(["No health check configured"], issues)
+
+    def test_public_artifact_url_is_live_probed(self):
+        module = self.load_module()
+        setattr(module, "url_probe", lambda url: (url == "https://dashboard.example.com/health", "down"))
+        healthy, healthy_issues = module.deliverable_health(
+            self.row(url="https://dashboard.example.com/health"), {}, self.deps(), {})
+        failing, failing_issues = module.deliverable_health(
+            self.row(url="https://dashboard.example.com/fail"), {}, self.deps(), {})
+        self.assertEqual(("Healthy", []), (healthy, healthy_issues))
+        self.assertEqual(("Failing", ["down"]), (failing, failing_issues))
+
+    def test_private_dashboard_url_is_rejected_without_fetching(self):
+        module = self.load_module()
+        calls = []
+        setattr(module, "url_probe", lambda url: calls.append(url) or (True, ""))
+        health, issues = module.deliverable_health(
+            self.row(url="http://127.0.0.1/admin"), {}, self.deps(), {})
+        self.assertEqual("Failing", health)
+        self.assertEqual(["URL health check must use a public HTTPS endpoint"], issues)
+        self.assertEqual([], calls)
+
+    def test_related_script_health_rolls_up(self):
+        module = self.load_module()
+        health, issues = module.deliverable_health(
+            self.row(scripts=[{"id": "s1"}]), {}, self.deps(), {"s1": "Failing"})
+        self.assertEqual("Failing", health)
+        self.assertEqual(["related script is Failing"], issues)
+
+    def test_update_backfills_alert_target_and_clears_fake_verification(self):
+        module = self.load_module()
+        row = self.row()
+        writes = []
+        setattr(module, "query_rows", lambda ds: [row] if ds == "deliverables" else [])
+        setattr(module, "notion", lambda path, method="GET", body=None: writes.append((path, method, body)) or {})
+        result = module.update_deliverables("deliverables", "scripts", [], self.deps())
+        props = writes[0][2]["properties"]
+        self.assertEqual("Unknown", result["New dashboard"]["health"])
+        self.assertIsNone(props["Last Verified"]["date"])
+        alert = "".join(x["text"]["content"] for x in props["Alert Target"]["rich_text"])
+        self.assertEqual("tasha@procoffeegear.com", alert)
 
 
 class FleetSyncTests(unittest.TestCase):
@@ -178,6 +316,7 @@ class FleetSyncTests(unittest.TestCase):
         self.assertIn("Keep diffs small.", second)
         self.assertEqual(1, second.count(module.POLICY_START))
         self.assertIn("Business Automations & Deliverables", second)
+        self.assertIn("Alert Target", second)
 
     def test_reconcile_policy_enables_plugin_and_preserves_local_instructions(self):
         module = self.load_module()
@@ -245,6 +384,7 @@ class DeliverableAutoregistrationPluginTests(unittest.TestCase):
 
         module.register(Context())
         self.assertIn("pcg.deliverable-autoregistration", sections)
+        self.assertIn("Alert Target", sections["pcg.deliverable-autoregistration"])
         directive = hooks["pre_verify"](
             session_id="s1", coding=True, attempt=0,
             changed_paths=["dashboard/index.html"], final_response="Done.",
