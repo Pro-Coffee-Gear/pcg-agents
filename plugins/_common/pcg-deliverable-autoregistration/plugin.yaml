@@ -1,0 +1,8 @@
+name: pcg-deliverable-autoregistration
+version: "1.0.0"
+description: "Requires every durable PCG work product to be cataloged in Notion before a build turn can finish."
+author: Pro Coffee Gear
+provides_hooks:
+  - post_tool_call
+  - pre_verify
+  - on_session_end

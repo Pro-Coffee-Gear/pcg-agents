@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Publish a meaningful build as a Proposed deliverable in the PCG Notion board."""
+"""Publish a completed PCG work product as a Proposed Notion deliverable."""
 from __future__ import annotations
 
 import argparse
@@ -92,7 +92,7 @@ def build_properties(p: dict, existing: dict | None = None) -> dict:
         "Alert Target": rt(p.get("alert_target", p["owner_email"])),
         "Visibility": select(p.get("visibility", "Function")),
         "Last Changed": {"date": {"start": now}}, "Last Verified": {"date": {"start": now}},
-        "Notes": rt("Proposed by an agent using the PCG meaningful-deliverable criteria. "
+        "Notes": rt("Automatically cataloged so completed PCG work is not hidden. "
                     "A function owner must approve it before it becomes official."),
     }
 
@@ -101,6 +101,12 @@ def default_submitter() -> str:
     if EMAIL_FILE.exists() and EMAIL_FILE.read_text().strip():
         return EMAIL_FILE.read_text().strip()
     return os.environ.get("PCG_OWNER_EMAIL", "wes@procoffeegear.com")
+
+
+def registration_reasons(proposal: dict) -> list[str]:
+    """Return useful classification labels without rejecting completed work."""
+    _meaningful, reasons = classify_deliverable(proposal)
+    return reasons or ["created work product"]
 
 
 def parse_args() -> argparse.Namespace:
@@ -130,10 +136,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     proposal = vars(parse_args())
     proposal["submitted_by"] = proposal.get("submitted_by") or default_submitter()
-    meaningful, reasons = classify_deliverable(proposal)
-    if not meaningful:
-        print("Not registered: local utility or one-time task, not a meaningful business deliverable.")
-        return 2
+    reasons = registration_reasons(proposal)
     existing = find_existing(proposal["name"], proposal["owner_email"])
     props = build_properties(proposal, existing)
     if existing:
