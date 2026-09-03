@@ -70,28 +70,65 @@ def find_existing(name: str, owner_email: str) -> dict | None:
     return None
 
 
+def _existing_select(existing: dict | None, name: str) -> str:
+    prop = (existing or {}).get("properties", {}).get(name, {})
+    return ((prop.get("select") or {}).get("name") or "").strip()
+
+
+def _existing_text(existing: dict | None, name: str) -> str:
+    prop = (existing or {}).get("properties", {}).get(name, {})
+    values = prop.get("rich_text") or []
+    return "".join(
+        item.get("plain_text") or ((item.get("text") or {}).get("content") or "")
+        for item in values
+    ).strip()
+
+
+def _existing_url(existing: dict | None, name: str) -> str:
+    return str((existing or {}).get("properties", {}).get(name, {}).get("url") or "").strip()
+
+
+def _existing_date(existing: dict | None, name: str) -> str:
+    value = (existing or {}).get("properties", {}).get(name, {}).get("date") or {}
+    return str(value.get("start") or "").strip()
+
+
 def build_properties(p: dict, existing: dict | None = None) -> dict:
-    current = None
-    if existing:
-        current = ((existing.get("properties", {}).get("Curation Status", {}).get("select") or {}).get("name"))
+    current = _existing_select(existing, "Curation Status")
     curation = current if current in {"Approved", "Rejected"} else "Proposed"
     now = datetime.now(timezone.utc).isoformat()
+    status = p.get("status") or _existing_select(existing, "Status") or "Building"
+    health = p.get("health") or _existing_select(existing, "Health") or "Unknown"
+    audience = p.get("audience") or _existing_select(existing, "Audience") or "Function"
+    visibility = p.get("visibility") or _existing_select(existing, "Visibility") or "Function"
+    schedule = p.get("schedule") or _existing_text(existing, "Schedule") or "On demand"
+    url = p.get("url") or _existing_url(existing, "URL")
+    source_repo = p.get("source_repo") or _existing_url(existing, "Source Repository")
+    jobs = p.get("jobs") or _existing_text(existing, "Job ID")
+    scripts = p.get("scripts") or _existing_text(existing, "Script Paths")
+    repair_policy = p.get("repair_policy") or _existing_select(existing, "Repair Policy") or "detect-only"
+    test_command = p.get("test_command") or _existing_text(existing, "Test Command")
+    deployment_method = p.get("deployment_method") or _existing_text(existing, "Deployment Method")
+    rollback_method = p.get("rollback_method") or _existing_text(existing, "Rollback Method")
+    alert_target = p.get("alert_target") or _existing_text(existing, "Alert Target") or p["owner_email"]
+    last_verified = p.get("last_verified") or _existing_date(existing, "Last Verified")
     return {
         "Name": title(p["name"]), "Type": select(p["type"]),
-        "Status": select(p.get("status", "Building")), "Health": select(p.get("health", "Unknown")),
-        "Functions": multi(p["function"]), "Audience": select(p.get("audience", "Function")),
+        "Status": select(status), "Health": select(health),
+        "Functions": multi(p["function"]), "Audience": select(audience),
         "Owner": rt(p.get("owner", p["owner_email"])), "Owner Email": {"email": p["owner_email"]},
         "Submitted By": {"email": p["submitted_by"]}, "Curation Status": select(curation),
-        "Business Purpose": rt(p["purpose"]), "Schedule": rt(p.get("schedule", "On demand")),
-        "URL": {"url": p.get("url") or None}, "Source Repository": {"url": p.get("source_repo") or None},
-        "Job ID": rt(p.get("jobs", "")), "Script Paths": rt(p.get("scripts", "")),
-        "Repair Policy": select(p.get("repair_policy", "detect-only")),
-        "Test Command": rt(p.get("test_command", "")),
-        "Deployment Method": rt(p.get("deployment_method", "")),
-        "Rollback Method": rt(p.get("rollback_method", "")),
-        "Alert Target": rt(p.get("alert_target", p["owner_email"])),
-        "Visibility": select(p.get("visibility", "Function")),
-        "Last Changed": {"date": {"start": now}}, "Last Verified": {"date": {"start": now}},
+        "Business Purpose": rt(p["purpose"]), "Schedule": rt(schedule),
+        "URL": {"url": url or None}, "Source Repository": {"url": source_repo or None},
+        "Job ID": rt(jobs), "Script Paths": rt(scripts),
+        "Repair Policy": select(repair_policy),
+        "Test Command": rt(test_command),
+        "Deployment Method": rt(deployment_method),
+        "Rollback Method": rt(rollback_method),
+        "Alert Target": rt(alert_target),
+        "Visibility": select(visibility),
+        "Last Changed": {"date": {"start": now}},
+        "Last Verified": {"date": {"start": last_verified}} if last_verified else {"date": None},
         "Notes": rt("Automatically cataloged so completed PCG work is not hidden. "
                     "A function owner must approve it before it becomes official."),
     }
@@ -116,14 +153,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--owner-email", required=True)
     p.add_argument("--function", action="append", required=True)
     p.add_argument("--type", required=True)
-    p.add_argument("--audience", default="Function")
-    p.add_argument("--visibility", default="Function")
-    p.add_argument("--schedule", default="On demand")
+    p.add_argument("--audience", default=None)
+    p.add_argument("--visibility", default=None)
+    p.add_argument("--schedule", default=None)
     p.add_argument("--url", default="")
     p.add_argument("--source-repo", default="")
     p.add_argument("--scripts", default="")
     p.add_argument("--jobs", default="")
-    p.add_argument("--repair-policy", default="detect-only",
+    p.add_argument("--repair-policy", default=None,
                    choices=["detect-only", "safe-auto-heal", "repair-pr", "critical-approval", "manual"])
     p.add_argument("--test-command", default="")
     p.add_argument("--deployment-method", default="")

@@ -18,8 +18,10 @@ dashboard, automation, integration, report, document, model, spreadsheet, shared
 or scheduled job—catalog it in **Business Automations & Deliverables** before reporting
 completion. Run `/opt/data/scripts/pcg-register-deliverable.py` with a stable business
 name, owner email, function(s), type, purpose, and every source/deployment/test field that
-is actually known. Leave unknown fields blank; never invent metadata. The publisher
-upserts a **Proposed** row and cannot self-approve it.
+is actually known. Leave unknown fields blank; never invent metadata. Set **Alert Target**
+to the desired notification destination; it defaults to the owner email when omitted. New
+work remains **Health = Unknown** until the monitor observes a real URL, script, job, or
+named dependency check. The publisher upserts a **Proposed** row and cannot self-approve it.
 
 This registration is part of the definition of done, not an optional judgment about
 importance. Reuse the same name and owner when updating existing work so its row is

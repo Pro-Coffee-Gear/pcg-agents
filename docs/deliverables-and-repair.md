@@ -24,6 +24,17 @@ The function owner reviews:
 The owner then sets **Curation Status** to Approved, Needs Changes, or Rejected.
 Approved rows are versioned automatically in `deliverables.toml`.
 
+## Health and alerting
+
+- **Alert Target** defaults to the Owner Email when the builder does not supply a more
+  specific destination.
+- New or uninstrumented work starts as **Health = Unknown** with no Last Verified date.
+- The health monitor marks a deliverable Healthy only when it observes a real signal:
+  a public HTTPS app/dashboard URL, a related Script Health row, a linked cron job, or a
+  named dependency probe.
+- A configured signal that fails becomes **Failing** or **Warning** and enters the existing
+  health-alert flow. No signal never counts as Healthy.
+
 ## What happens when a script fails
 
 1. The 15-minute health monitor records the failure and opens a stable incident.

@@ -36,13 +36,19 @@ python3 /opt/data/scripts/pcg-register-deliverable.py \
   --repair-policy "detect-only" \
   --test-command "exact verification command" \
   --deployment-method "How people access it" \
-  --rollback-method "How to undo it safely"
+  --rollback-method "How to undo it safely" \
+  --alert-target "owner@procoffeegear.com"
 ```
 
 Use multiple `--function` flags for cross-functional work. Supply every field that is
-actually known and leave unknown fields blank; never invent metadata. Reuse the same
-stable name and owner for later updates so the existing row is updated rather than
-duplicated.
+actually known and leave unknown fields blank; never invent metadata. If `--alert-target`
+is omitted, it defaults to the owner email. Reuse the same stable name and owner for later
+updates so the existing row is updated rather than duplicated.
+
+New rows start with **Health = Unknown** and no Last Verified timestamp. The health monitor
+marks an item Healthy only when it has a real signal: a public HTTPS app/dashboard URL, related
+script health, a linked cron job, or a named dependency probe. No signal remains Unknown;
+it must never become Healthy merely because no failure was detected.
 
 The script creates or updates a **Proposed** Notion row. Verify the returned Notion URL
 before reporting completion. The publisher cannot approve its own submission.
