@@ -2,13 +2,16 @@
 
 ## What appears on the business board
 
-A deliverable is **curated**, not blindly discovered. It belongs on the board when it
-runs repeatedly, changes business data, supports several people, is customer-facing,
-needs ongoing maintenance, creates an important dependency, or would matter if it stopped.
+Every durable work product created or materially updated by a PCG agent appears on the
+board. This includes apps, dashboards, automations, integrations, reports, documents,
+models, spreadsheets, shared skills, and scheduled jobs. Temporary scratch files and
+throwaway test fixtures are the only exemptions.
 
-Every team agent receives the `pcg-deliverable-publishing` skill and
-`pcg-register-deliverable.py`. After meaningful work is built, the agent submits a
-**Proposed** row to Notion. The submitting agent cannot approve it.
+Every team profile receives the `pcg-deliverable-autoregistration` plugin, the
+`pcg-deliverable-publishing` skill, and `pcg-register-deliverable.py`. The plugin adds the
+policy to the agent's standing context and keeps a completed build turn open until a
+successful **Proposed** Notion registration is detected. The submitting agent cannot
+approve its own row.
 
 The function owner reviews:
 - business purpose and audience;
@@ -57,6 +60,7 @@ code or configuration changes.
 - `deliverables.toml` — generated audit snapshot of Approved Notion rows.
 - `jobs.yaml` — fleet-managed deterministic jobs.
 - `scripts/pcg-register-deliverable.py` — team proposal publisher.
+- `plugins/_common/pcg-deliverable-autoregistration/` — automatic definition-of-done gate.
 - `scripts/pcg-automation-health.py` — detection and deterministic restoration.
 - `scripts/pcg-repair-gate.py` — deduplicated repair-agent trigger.
 - `scripts/pcg-repair-status.py` — incident state and PR handoff.
