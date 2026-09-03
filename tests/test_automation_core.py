@@ -97,6 +97,32 @@ class DeliverablePublisherTests(unittest.TestCase):
         spec.loader.exec_module(module)
         return module
 
+    def test_every_completed_work_product_is_registerable(self):
+        module = self.load_module()
+        proposal = {
+            "name": "One-time team handoff", "type": "Document",
+            "purpose": "Give the team a durable operating reference",
+            "owner_email": "tasha@procoffeegear.com", "function": ["CS"],
+            "audience": "Individual",
+        }
+        self.assertEqual(["created work product"], module.registration_reasons(proposal))
+
+    def test_main_registers_work_even_when_legacy_classifier_returns_false(self):
+        module = self.load_module()
+        proposal = {
+            "name": "One-time team handoff", "type": "Document",
+            "purpose": "Give the team a durable operating reference",
+            "owner_email": "tasha@procoffeegear.com", "function": ["CS"],
+            "audience": "Individual", "submitted_by": "tasha@procoffeegear.com",
+        }
+        setattr(module, "parse_args", lambda: __import__("argparse").Namespace(**proposal))
+        setattr(module, "find_existing", lambda *_: None)
+        writes = []
+        setattr(module, "notion", lambda path, method="GET", body=None: writes.append((path, method, body)) or {"url": "https://notion.test/row"})
+        self.assertEqual(0, module.main())
+        self.assertEqual("/pages", writes[0][0])
+        self.assertEqual("Proposed", writes[0][2]["properties"]["Curation Status"]["select"]["name"])
+
     def test_new_build_is_proposed_and_cannot_self_approve(self):
         module = self.load_module()
         proposal = {
@@ -133,6 +159,118 @@ class FleetSyncTests(unittest.TestCase):
         self.assertTrue(module.is_repo_managed("pcg-automation-health.py"))
         self.assertTrue(module.is_repo_managed("pcg_sync.py"))
         self.assertFalse(module.is_repo_managed("front_model_scan.py"))
+
+    def test_plugin_destinations_cover_default_and_held_profiles(self):
+        module = self.load_module()
+        root = Path("/srv/member")
+        homes = module.plugin_destinations(root, {"cs", "operations"}, existing_only=False)
+        self.assertEqual([
+            root,
+            root / "profiles" / "cs",
+            root / "profiles" / "operations",
+        ], homes)
+
+    def test_managed_coding_instruction_is_added_once_and_replaceable(self):
+        module = self.load_module()
+        original = "Keep diffs small."
+        first = module.merge_coding_instructions(original)
+        second = module.merge_coding_instructions(first)
+        self.assertIn("Keep diffs small.", second)
+        self.assertEqual(1, second.count(module.POLICY_START))
+        self.assertIn("Business Automations & Deliverables", second)
+
+    def test_reconcile_policy_enables_plugin_and_preserves_local_instructions(self):
+        module = self.load_module()
+        calls = []
+
+        def runner(command, **kwargs):
+            calls.append(command)
+            if command[1:4] == ["config", "get", "agent.coding_instructions"]:
+                return __import__("types").SimpleNamespace(returncode=0, stdout="Keep diffs small.\n", stderr="")
+            if command[1:4] == ["plugins", "list", "--json"]:
+                return __import__("types").SimpleNamespace(
+                    returncode=0,
+                    stdout='[{"name":"pcg-deliverable-autoregistration","status":"not enabled"}]',
+                    stderr="",
+                )
+            return __import__("types").SimpleNamespace(returncode=0, stdout="ok", stderr="")
+
+        changes = []
+        module.reconcile_deliverable_policy(Path("/srv/member"), changes, runner=runner)
+        set_calls = [c for c in calls if c[1:3] == ["config", "set"]]
+        self.assertEqual(1, len(set_calls))
+        self.assertIn("Keep diffs small.", set_calls[0][4])
+        self.assertIn([module.HERMES_BIN, "plugins", "enable", module.PLUGIN_NAME], calls)
+        self.assertEqual(2, len(changes))
+
+    def test_syncs_and_enables_plugin_in_default_and_profile_homes(self):
+        module = self.load_module()
+        with __import__("tempfile").TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "profiles" / "cs").mkdir(parents=True)
+            setattr(module, "HERMES_HOME", str(root))
+            sync_calls = []
+            policy_calls = []
+            setattr(module, "sync_dir", lambda token, repo, local, changes, conflicts, manifest: sync_calls.append((repo, Path(local))))
+            setattr(module, "reconcile_deliverable_policy", lambda home, changes: policy_calls.append(Path(home)))
+            module.sync_plugins_and_policy("token", {"cs", "sales"}, [], [], {})
+            expected_homes = [root, root / "profiles" / "cs"]
+            self.assertEqual(
+                [("plugins/_common", home / "plugins") for home in expected_homes],
+                sync_calls,
+            )
+            self.assertEqual(expected_homes, policy_calls)
+
+
+class DeliverableAutoregistrationPluginTests(unittest.TestCase):
+    def load_module(self):
+        path = ROOT / "plugins" / "_common" / "pcg-deliverable-autoregistration" / "__init__.py"
+        spec = importlib.util.spec_from_file_location("pcg_deliverable_autoregistration", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_pre_verify_blocks_completion_until_registration_succeeds(self):
+        module = self.load_module()
+        hooks = {}
+        sections = {}
+
+        class Context:
+            def register_hook(self, name, callback):
+                hooks[name] = callback
+
+            def register_system_prompt_section(self, name, content, **kwargs):
+                sections[name] = content
+
+        module.register(Context())
+        self.assertIn("pcg.deliverable-autoregistration", sections)
+        directive = hooks["pre_verify"](
+            session_id="s1", coding=True, attempt=0,
+            changed_paths=["dashboard/index.html"], final_response="Done.",
+        )
+        self.assertEqual("continue", directive["action"])
+        self.assertIn("pcg-register-deliverable.py", directive["message"])
+
+        hooks["post_tool_call"](
+            session_id="s1", tool_name="terminal",
+            args={"command": "python3 /opt/data/scripts/pcg-register-deliverable.py --name x"},
+            result="Deliverable proposed: x\nhttps://app.notion.com/p/x",
+            status="success",
+        )
+        self.assertIsNone(hooks["pre_verify"](
+            session_id="s1", coding=True, attempt=1,
+            changed_paths=["dashboard/index.html"], final_response="Done.",
+        ))
+
+    def test_scratch_work_can_be_explicitly_excluded(self):
+        module = self.load_module()
+        directive = module.pre_verify(
+            session_id="s2", coding=True, attempt=1,
+            changed_paths=["tmp/probe.py"],
+            final_response="PCG catalog: not applicable — scratch test fixture.",
+        )
+        self.assertIsNone(directive)
 
 
 class RepairCoreTests(unittest.TestCase):

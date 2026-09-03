@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-pcg_sync.py — fleet asset sync. Pulls shared skills + scripts from the
+pcg_sync.py — fleet asset sync. Pulls shared skills, scripts, and plugins from the
 WWWPCG/pcg-agents private repo, scoped to THIS box's function set, and
 reconciles team cron jobs from jobs.yaml.
 
@@ -10,6 +10,8 @@ File rules:
   - skills/_common/*  -> skills/                (every box)
   - skills/<fn>/*     -> profiles/<fn>/skills/  (only held functions)
   - scripts/*         -> scripts/               (every box)
+  - plugins/_common/* -> plugins/ in the default and held profile homes
+                         (enabled automatically)
   - Files under a folder whose name starts with "pcg-" (or files themselves
     starting with "pcg-") are REPO-MANAGED: the repo wins on conflict. All other
     files: created if missing, never overwritten — a local edit to a
@@ -35,6 +37,7 @@ import re
 import subprocess
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
 OWNER, REPO = "WWWPCG", "pcg-agents"
 HERMES_HOME = os.environ.get("HERMES_HOME", "/opt/data")
@@ -49,6 +52,15 @@ FUNC_TO_PROFILE = {
     "Company": "company",
 }
 REPO_MANAGED_PREFIX = "pcg-"
+PLUGIN_NAME = "pcg-deliverable-autoregistration"
+POLICY_START = "<!-- PCG DELIVERABLE CATALOG POLICY START -->"
+POLICY_END = "<!-- PCG DELIVERABLE CATALOG POLICY END -->"
+CODING_POLICY = """Whenever you create or materially update a durable PCG work product,
+register or update its Proposed row in Business Automations & Deliverables before
+reporting completion. Run /opt/data/scripts/pcg-register-deliverable.py with the known
+owner, functions, purpose, source, test, deployment, and rollback metadata; leave unknown
+fields blank rather than inventing them. Only temporary scratch and throwaway test
+fixtures are exempt."""
 
 
 def is_repo_managed(rel):
@@ -56,6 +68,68 @@ def is_repo_managed(rel):
     Both separators count (pcg- for skill dirs, pcg_ for script filenames)."""
     top = rel.split(os.sep)[0]
     return top.startswith("pcg-") or top.startswith("pcg_")
+
+
+def plugin_destinations(root, functions, existing_only=True):
+    """Return the default home plus each held function profile home."""
+    root = Path(root)
+    homes = [root]
+    for function in sorted(functions):
+        profile = root / "profiles" / function
+        if not existing_only or profile.is_dir():
+            homes.append(profile)
+    return homes
+
+
+def merge_coding_instructions(existing):
+    """Add or replace PCG's managed catalog policy without touching local guidance."""
+    block = f"{POLICY_START}\n{CODING_POLICY}\n{POLICY_END}"
+    pattern = re.compile(re.escape(POLICY_START) + r".*?" + re.escape(POLICY_END), re.S)
+    existing = (existing or "").strip()
+    if pattern.search(existing):
+        return pattern.sub(block, existing)
+    return (existing + "\n\n" + block).strip()
+
+
+def reconcile_deliverable_policy(home, changes, runner=subprocess.run):
+    """Install the immediate coding rule and enable the durable plugin guard."""
+    home = str(home)
+    env = {**os.environ, "HERMES_HOME": home}
+    get_result = runner(
+        [HERMES_BIN, "config", "get", "agent.coding_instructions"],
+        capture_output=True, text=True, env=env,
+    )
+    existing = get_result.stdout.strip() if get_result.returncode == 0 else ""
+    desired = merge_coding_instructions(existing)
+    if desired != existing:
+        set_result = runner(
+            [HERMES_BIN, "config", "set", "agent.coding_instructions", desired],
+            capture_output=True, text=True, env=env,
+        )
+        if set_result.returncode == 0:
+            changes.append(f"catalog policy installed: {home}")
+
+    list_result = runner(
+        [HERMES_BIN, "plugins", "list", "--json", "--user"],
+        capture_output=True, text=True, env=env,
+    )
+    rows = []
+    if list_result.returncode == 0:
+        try:
+            rows = json.loads(list_result.stdout or "[]")
+        except Exception:
+            rows = []
+    enabled = any(
+        row.get("name") == PLUGIN_NAME and row.get("status") == "enabled"
+        for row in rows if isinstance(row, dict)
+    )
+    if not enabled:
+        enable_result = runner(
+            [HERMES_BIN, "plugins", "enable", PLUGIN_NAME],
+            capture_output=True, text=True, env=env,
+        )
+        if enable_result.returncode == 0:
+            changes.append(f"plugin enabled: {PLUGIN_NAME} ({home})")
 
 
 def env_key(*names):
@@ -163,6 +237,20 @@ def sync_dir(token, repo_dir, local_dir, changes, conflicts, manifest):
             f.write(content)
         manifest[dest] = repo_path
         changes.append("installed " + dest.replace(HERMES_HOME + "/", ""))
+
+
+def sync_plugins_and_policy(token, functions, changes, conflicts, manifest):
+    """Distribute and enable the catalog guard in every active profile home."""
+    for home in plugin_destinations(HERMES_HOME, functions):
+        sync_dir(
+            token,
+            "plugins/_common",
+            str(home / "plugins"),
+            changes,
+            conflicts,
+            manifest,
+        )
+        reconcile_deliverable_policy(home, changes)
 
 
 def quarantine_deleted(manifest, changes):
@@ -311,6 +399,10 @@ def main():
             pass
     try:
         sync_dir(token, "scripts", os.path.join(HERMES_HOME, "scripts"), changes, conflicts, manifest)
+    except Exception:
+        pass
+    try:
+        sync_plugins_and_policy(token, fns, changes, conflicts, manifest)
     except Exception:
         pass
 

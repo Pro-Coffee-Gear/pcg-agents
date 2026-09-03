@@ -9,6 +9,13 @@ Onboarding + verification scripts for the Pro Coffee Gear agent fleet.
   writes the result back to the roster.
 - `roster_sync_check.py` — verification only: compares requested vs. active
   profiles and updates Sync Status / Onboarded in the roster.
+- `plugins/_common/pcg-deliverable-autoregistration/` — fleet-wide definition-of-done
+  guard. It injects the catalog policy into every profile and keeps completed build
+  turns open until the agent has created or updated a Proposed Business Automations &
+  Deliverables row (scratch/test fixtures are the only exemption).
+- `scripts/pcg_sync.py` — distributes common plugins alongside skills/scripts, enables
+  the registration guard in every held profile, and preserves any local coding guidance
+  through a managed policy block.
 
 ## Usage
 Keys are supplied at runtime (never stored here):
