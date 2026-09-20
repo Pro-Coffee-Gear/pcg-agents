@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 """
-pcg_onboard.py — One-command onboarding for a Pro Coffee Gear team member's box.
+pcg_onboard.py — onboarding from a reviewed PCG bundle.
 
-Run this ON THE NEW MEMBER'S BOX. It:
-  1. Stores the Honcho, Notion, and read-only GitHub sync keys into this box's .env.
-  2. Looks the person up in the Notion roster by --email.
-  3. Reads their Primary (single-select) + Adjacent (multi-select) -> the profiles they should have.
-  4. Creates those Hermes profiles (idempotent - skips any that already exist).
-  5. Writes honcho.json so each profile points at the shared 'procoffeegear' workspace
-     with the correct aiPeer and the person's own peerName.
-  6. Runs the sync-check -> writes Active Profiles + Sync Status + Onboarded back to the roster.
+New installations require an already-installed, already-authorized Composio CLI
+and an explicit PCG_GITHUB_ACCOUNT selector. The reviewed bundle must contain
+scripts/pcg_github.py and scripts/pcg_sync.py; onboarding never installs or logs
+in to Composio and never accepts or stores a GitHub PAT.
 
 Model (post-2026-08-16 redesign):
   - PRIMARY (single-select) = their home function. The default profile points at it.
@@ -17,11 +13,20 @@ Model (post-2026-08-16 redesign):
   - ADJACENT (multi-select) = extra function agents they can switch to.
   - The legacy 'Function' column is a fallback: first non-LT entry -> Primary; 'LT' in it -> LT member.
 
-Usage (keys come from Wes, in the personalized command):
-  GITHUB_SYNC_TOKEN=... HONCHO_API_KEY=... NOTION_API_KEY=... python3 pcg_onboard.py --email you@procoffeegear.com [--name "Your Name"]
-  ...  --dry-run     # show what WOULD happen, create nothing
+Usage (non-GitHub keys are supplied out of band; account selector is per instance):
+  PCG_GITHUB_ACCOUNT=... HONCHO_API_KEY=... NOTION_API_KEY=... python3 pcg_onboard.py --email you@procoffeegear.com
+  ... --dry-run  # local prerequisite check only; no network and no mutation
 """
-import json, os, sys, subprocess, argparse, urllib.request
+import argparse
+import importlib.util
+import json
+import os
+import py_compile
+import subprocess
+import sys
+import tempfile
+import urllib.request
+from pathlib import Path
 
 WORKSPACE   = "procoffeegear"
 HONCHO_ENV  = "production"
@@ -51,6 +56,57 @@ BLOCK_TO_FUNC = {
 }
 
 def log(msg): print(msg, flush=True)
+
+
+class OnboardingError(RuntimeError):
+    pass
+
+
+def reviewed_bundle_scripts():
+    """Locate a bundle that already contains both gateway and updater."""
+    here = Path(__file__).resolve().parent
+    candidates = [here / "scripts", here, Path(HERMES_HOME) / "scripts"]
+    for candidate in candidates:
+        if (candidate / "pcg_github.py").is_file() and (candidate / "pcg_sync.py").is_file():
+            return candidate
+    raise OnboardingError(
+        "reviewed bundle is incomplete: scripts/pcg_github.py and scripts/pcg_sync.py are required"
+    )
+
+
+def load_gateway_module(bundle):
+    path = Path(bundle) / "pcg_github.py"
+    spec = importlib.util.spec_from_file_location("pcg_onboard_github", path)
+    if spec is None or spec.loader is None:
+        raise OnboardingError("reviewed GitHub adapter could not be loaded")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        raise OnboardingError("reviewed GitHub adapter could not be loaded") from None
+    return module
+
+
+def github_preflight(dry_run=False):
+    """Validate the local bundle/CLI, then prove private read access when live."""
+    bundle = reviewed_bundle_scripts()
+    account = (os.environ.get("PCG_GITHUB_ACCOUNT") or "").strip()
+    executable = (os.environ.get("PCG_COMPOSIO_CLI") or str(Path.home() / ".composio" / "composio")).strip()
+    if not account:
+        raise OnboardingError("PCG_GITHUB_ACCOUNT must be set for this instance")
+    cli_path = Path(executable)
+    if not cli_path.is_absolute() or not cli_path.is_file() or not os.access(cli_path, os.X_OK):
+        raise OnboardingError("PCG_COMPOSIO_CLI must be an existing absolute executable")
+    module = load_gateway_module(bundle)
+    if dry_run:
+        return bundle, account, str(cli_path), None
+    adapter = module.ComposioGitHub(account, str(cli_path))
+    repo = adapter.get(module.REPO_API)
+    if not isinstance(repo, dict) or repo.get("full_name") != "WWWPCG/pcg-agents":
+        raise OnboardingError("Composio GitHub repository preflight returned malformed data")
+    adapter.read_file("health.toml")
+    return bundle, account, str(cli_path), adapter
+
 
 # ---------- Notion ----------
 def notion(path, method="GET", body=None, key=None):
@@ -82,18 +138,30 @@ def roster_row(email, key):
     return row["id"], primary, adjacent, is_lt
 
 # ---------- .env ----------
-def store_keys(honcho_key, notion_key, github_sync_token):
-    env_path=os.path.join(HERMES_HOME, ".env")
-    existing=b""
+def store_keys(honcho_key, notion_key, github_account, composio_cli):
+    """Persist app keys plus nonsecret gateway selection; remove legacy PATs."""
+    env_path = os.path.join(HERMES_HOME, ".env")
+    existing = b""
     if os.path.exists(env_path):
-        with open(env_path,"rb") as f: existing=f.read()
-    text=existing.decode("utf-8","ignore")
-    lines=[l for l in text.splitlines() if not l.startswith(("HONCHO_API_KEY","NOTION_API_KEY","GITHUB_SYNC_TOKEN"))]
-    if honcho_key: lines.append(f"HONCHO_API_KEY={honcho_key}")
-    if notion_key: lines.append(f"NOTION_API_KEY={notion_key}")
-    if github_sync_token: lines.append(f"GITHUB_SYNC_TOKEN={github_sync_token}")
-    with open(env_path,"wb") as f: f.write(("\n".join(lines)+"\n").encode())
-    log(f"  stored keys in {env_path}")
+        with open(env_path, "rb") as handle:
+            existing = handle.read()
+    managed = (
+        "HONCHO_API_KEY", "NOTION_API_KEY", "GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
+        "PCG_GITHUB_ACCOUNT", "PCG_COMPOSIO_CLI", "PCG_GITHUB_ALLOW_SNAPSHOT_WRITE",
+    )
+    lines = [
+        line for line in existing.decode("utf-8", "ignore").splitlines()
+        if not any(line.startswith(name + "=") for name in managed)
+    ]
+    lines.extend([
+        f"HONCHO_API_KEY={honcho_key}",
+        f"NOTION_API_KEY={notion_key}",
+        f"PCG_GITHUB_ACCOUNT={github_account}",
+        f"PCG_COMPOSIO_CLI={composio_cli}",
+    ])
+    Path(env_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(env_path).write_text("\n".join(lines) + "\n")
+    log(f"  stored configuration in {env_path}")
 
 # ---------- Hermes profiles ----------
 def existing_profiles():
@@ -188,11 +256,13 @@ def write_roster(pid, active, status, key, dry):
     if dry:
         log(f"  [dry] would set roster: Active={active} Status={status}"); return
     r=notion(f"/pages/{pid}","PATCH",{"properties":props},key=key)
-    log(f"  roster updated: {'ok' if 'error' not in r else 'FAILED'}")
+    if "error" in r:
+        raise OnboardingError("roster completion update failed")
+    log("  roster updated: ok")
 
-# ---------- profile sync (self-updating) ----------
-# The sync script's full source is embedded so pcg_onboard.py is self-contained
-# even when piped via `curl | python3` (no repo checkout on the member's box).
+# ---------- profile sync ----------
+# Profile sync remains embedded, but fleet GitHub access comes only from the
+# separately reviewed bundle and its already-provisioned Composio connection.
 PROFILE_SYNC_SRC = r'''#!/usr/bin/env python3
 """
 profile_sync.py — keep this box's profiles in sync with the Notion roster.
@@ -233,7 +303,8 @@ FUNC_MAP = {
     "CS": ("cs", "cs"), "Product/Merch": ("product", "product"),
     "Marketing/Growth": ("marketing", "marketing"), "Company": ("company", "company"),
 }
-SHARED_KEYS = ("HONCHO_API_KEY", "NOTION_API_KEY", "GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+SHARED_KEYS = ("HONCHO_API_KEY", "NOTION_API_KEY")
+LEGACY_GITHUB_KEYS = ("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
 
 
 def env_key(name):
@@ -349,7 +420,8 @@ def strip_shared_keys():
     if not os.path.exists(envp):
         return
     data = open(envp, "rb").read().decode("utf-8", "ignore")
-    lines = [l for l in data.splitlines() if not any(l.startswith(k + "=") for k in SHARED_KEYS)]
+    removable = SHARED_KEYS + LEGACY_GITHUB_KEYS
+    lines = [l for l in data.splitlines() if not any(l.startswith(k + "=") for k in removable)]
     open(envp, "wb").write(("\n".join(lines) + "\n").encode())
 
 
@@ -507,151 +579,160 @@ def install_profile_sync(email, dry):
     ok = r.returncode == 0
     log(f"  cron 'pcg-profile-sync': {'registered (every 15m)' if ok else 'FAILED'}")
     if not ok:
-        log("    " + (r.stderr or r.stdout)[:200])
+        raise OnboardingError("could not register pcg-profile-sync")
 
 
-def install_fleet_sync(dry):
-    """Fetch pcg_sync.py from the repo and register a 30-min no_agent cron that
-    pulls shared skills (+scripts) scoped to this box's function set. The sync
-    script lives in the repo so it self-updates; we just fetch it once + schedule."""
-    scripts_dir = os.path.join(HERMES_HOME, "scripts")
-    sync_dest = os.path.join(scripts_dir, "pcg_sync.py")
-
-    if dry:
-        log("  [dry] would fetch pcg_sync.py + register cron 'pcg-fleet-sync' (every 30m)")
+def _install_bundle_file(source, destination):
+    destination = Path(destination)
+    source = Path(source)
+    if source.resolve() == destination.resolve():
         return
-
-    # Prefer the read-only sync token; fall back to the onboarding token.
-    gh_token = None
-    envp = os.path.join(HERMES_HOME, ".env")
-    if os.path.exists(envp):
-        for line in open(envp, "rb").read().decode("utf-8", "ignore").splitlines():
-            for n in ("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
-                if line.startswith(n + "="):
-                    gh_token = gh_token or line.split("=", 1)[1].strip()
-    gh_token = gh_token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if not gh_token:
-        log("  ! no GitHub token in .env — skipping fleet-sync install")
-        return
-
-    # Fetch pcg_sync.py from the private repo (Contents API, raw accept).
-    # Canonical home is scripts/ in the repo — after install, the 30-min fleet
-    # sync itself keeps this file (and profile_sync.py) current forever.
-    os.makedirs(scripts_dir, exist_ok=True)
-    req = urllib.request.Request(
-        "https://api.github.com/repos/WWWPCG/pcg-agents/contents/scripts/pcg_sync.py",
-        headers={"Authorization": f"token {gh_token}",
-                 "Accept": "application/vnd.github.raw"})
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
     try:
-        with urllib.request.urlopen(req) as r:
-            with open(sync_dest, "wb") as f:
-                f.write(r.read())
-        log("  fetched pcg_sync.py from repo")
-    except Exception as e:
-        log(f"  ! could not fetch pcg_sync.py ({e}) — skipping fleet-sync install")
+        with tempfile.NamedTemporaryFile(dir=destination.parent, prefix="." + destination.name + ".", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(source.read_bytes())
+        py_compile.compile(str(temporary), doraise=True)
+        os.replace(temporary, destination)
+    except Exception:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+        raise OnboardingError(f"could not install reviewed {destination.name}") from None
+
+
+def install_fleet_sync(dry, bundle_scripts=None):
+    """Install gateway and updater from one reviewed local bundle before cron."""
+    bundle = Path(bundle_scripts) if bundle_scripts is not None else reviewed_bundle_scripts()
+    adapter_source = bundle / "pcg_github.py"
+    sync_source = bundle / "pcg_sync.py"
+    if not adapter_source.is_file() or not sync_source.is_file():
+        raise OnboardingError("reviewed fleet bundle is incomplete")
+    scripts_dir = Path(HERMES_HOME) / "scripts"
+    adapter_dest = scripts_dir / "pcg_github.py"
+    sync_dest = scripts_dir / "pcg_sync.py"
+    if dry:
+        log("  [dry] would install reviewed gateway + updater and register pcg-fleet-sync")
         return
 
-    # Register the cron (idempotent)
-    r = subprocess.run([HERMES_BIN, "cron", "list"], capture_output=True, text=True,
-                       env={**os.environ, "HERMES_HOME": HERMES_HOME})
-    if "pcg-fleet-sync" in (r.stdout + r.stderr):
-        log("  cron 'pcg-fleet-sync' already registered — skipping")
-    else:
-        r = subprocess.run(
-            [HERMES_BIN, "cron", "create", "every 30m",
-             "--name", "pcg-fleet-sync",
-             "--script", "pcg_sync.py",
-             "--no-agent",
-             "--deliver", "local"],
-            capture_output=True, text=True,
-            env={**os.environ, "HERMES_HOME": HERMES_HOME},
-        )
-        ok = r.returncode == 0
-        log(f"  cron 'pcg-fleet-sync': {'registered (every 30m)' if ok else 'FAILED'}")
-        if not ok:
-            log("    " + (r.stderr or r.stdout)[:200])
+    _install_bundle_file(adapter_source, adapter_dest)
+    _install_bundle_file(sync_source, sync_dest)
+    # Both files must still be importable Python before any schedule is created.
+    try:
+        py_compile.compile(str(adapter_dest), doraise=True)
+        py_compile.compile(str(sync_dest), doraise=True)
+    except Exception:
+        raise OnboardingError("installed fleet bundle failed syntax validation") from None
 
-    # Initial pull so the member gets shared skills immediately
-    r = subprocess.run([sys.executable, sync_dest], capture_output=True, text=True,
-                       env={**os.environ, "HERMES_HOME": HERMES_HOME})
-    out = (r.stdout or "").strip()
-    log("  initial pull: " + (out.splitlines()[0] if out else "nothing to sync yet"))
+    # Initial pull proves the installed updater works before cron registration.
+    result = subprocess.run(
+        [sys.executable, str(sync_dest)],
+        capture_output=True,
+        text=True,
+        timeout=180,
+        env={**os.environ, "HERMES_HOME": HERMES_HOME},
+    )
+    if result.returncode != 0:
+        raise OnboardingError("initial fleet sync failed; cron was not registered")
+    output = (result.stdout or "").strip()
+    log("  initial pull: " + (output.splitlines()[0] if output else "no changes"))
+
+    result = subprocess.run(
+        [HERMES_BIN, "cron", "list"], capture_output=True, text=True,
+        env={**os.environ, "HERMES_HOME": HERMES_HOME},
+    )
+    if result.returncode != 0:
+        raise OnboardingError("could not inspect fleet cron jobs")
+    if "pcg-fleet-sync" in (result.stdout + result.stderr):
+        log("  cron 'pcg-fleet-sync' already registered — skipping")
+        return
+    result = subprocess.run(
+        [HERMES_BIN, "cron", "create", "every 30m",
+         "--name", "pcg-fleet-sync", "--script", "pcg_sync.py",
+         "--no-agent", "--deliver", "local"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "HERMES_HOME": HERMES_HOME},
+    )
+    if result.returncode != 0:
+        raise OnboardingError("could not register pcg-fleet-sync")
+    log("  cron 'pcg-fleet-sync': registered (every 30m)")
 
 # ---------- main ----------
-def main():
-    ap=argparse.ArgumentParser()
-    ap.add_argument("--email", required=True)
-    ap.add_argument("--name", default=None, help="peerName override; default derived from email")
-    ap.add_argument("--dry-run", action="store_true")
-    args=ap.parse_args()
+def main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--email", required=True)
+    parser.add_argument("--name", default=None, help="peerName override; default derived from email")
+    parser.add_argument("--dry-run", action="store_true")
+    args = parser.parse_args(argv)
 
-    honcho_key=(os.environ.get("HONCHO_API_KEY") or "").strip()
-    notion_key=(os.environ.get("NOTION_API_KEY") or "").strip()
-    github_sync_token=(os.environ.get("GITHUB_SYNC_TOKEN") or "").strip()
-    if not honcho_key or not notion_key or not github_sync_token:
-        log("ERROR: GITHUB_SYNC_TOKEN, HONCHO_API_KEY, and NOTION_API_KEY must be set (they're in the command Wes gave you).")
-        sys.exit(2)
-
-    peer_name = args.name or args.email.split("@")[0].lower().replace(".","-")
-
+    honcho_key = (os.environ.get("HONCHO_API_KEY") or "").strip()
+    notion_key = (os.environ.get("NOTION_API_KEY") or "").strip()
+    if not honcho_key or not notion_key:
+        log("ERROR: HONCHO_API_KEY and NOTION_API_KEY must be set")
+        return 2
+    peer_name = args.name or args.email.split("@")[0].lower().replace(".", "-")
     log(f"== PCG Onboarding for {args.email} (peer: {peer_name}) ==")
 
-    # 1. keys
-    log("[1/7] storing keys")
-    if not args.dry_run: store_keys(honcho_key, notion_key, github_sync_token)
-    else: log("  [dry] would store keys in .env")
+    try:
+        # This must remain first: a failed gateway/bundle preflight may not store
+        # keys, create profiles, touch roster state, or register jobs.
+        bundle, github_account, composio_cli, _adapter = github_preflight(args.dry_run)
+        if args.dry_run:
+            log("  [dry] local bundle, account selector, and Composio executable are present")
+            log("  [dry] no network calls or mutations were performed")
+            return 0
 
-    # 2. roster lookup
-    log("[2/7] reading roster")
-    pid, primary, adjacent, is_lt = roster_row(args.email, notion_key)
-    if pid is None:
-        log(f"ERROR: no roster row for {args.email}. Ask Wes to add you first."); sys.exit(2)
-    log(f"  Primary: {primary}  Adjacent: {adjacent}  LT member: {is_lt}")
-    if not primary:
-        log("ERROR: no Primary function set in roster. Set the Primary column first."); sys.exit(2)
+        log("[1/7] reading roster after GitHub preflight")
+        pid, primary, adjacent, is_lt = roster_row(args.email, notion_key)
+        adjacent = adjacent or []
+        if pid is None:
+            raise OnboardingError("no roster row found; add the member before onboarding")
+        if not primary:
+            raise OnboardingError("roster Primary function is missing")
+        log(f"  Primary: {primary}  Adjacent: {adjacent}  LT member: {is_lt}")
 
-    # 3. create profiles (lt if LT member + adjacent; default is the box default, no create needed)
-    log("[3/7] creating profiles")
-    have=existing_profiles()
-    to_create = ["lt"] if is_lt else []  # LT profile only for LT members
-    for f in adjacent:
-        if f in FUNC_MAP and f != "LT":
-            to_create.append(FUNC_MAP[f][0])
-    for pname in to_create:
-        if pname in have:
-            log(f"  '{pname}' already exists — skipping create")
-        else:
-            create_profile(pname, args.dry_run)
+        log("[2/7] storing instance configuration")
+        store_keys(honcho_key, notion_key, github_account, composio_cli)
 
-    # 4. wire honcho
-    log("[4/7] wiring shared memory (honcho.json)")
-    active = write_honcho(primary, adjacent, is_lt, peer_name, honcho_key, notion_key, args.dry_run)
+        log("[3/7] creating profiles")
+        have = existing_profiles()
+        to_create = ["lt"] if is_lt else []
+        for function in adjacent:
+            if function in FUNC_MAP and function != "LT":
+                to_create.append(FUNC_MAP[function][0])
+        for profile in to_create:
+            if profile in have:
+                log(f"  '{profile}' already exists — skipping create")
+            elif not create_profile(profile, False):
+                raise OnboardingError(f"profile creation failed for {profile}")
 
-    # 5. verify + write back
-    log("[5/7] verifying")
-    actual = actual_active() if not args.dry_run else active
-    # expected = primary + LT (if member) + adjacent
-    expected = [primary] + (["LT"] if is_lt else []) + [f for f in adjacent if f != "LT"]
-    status,detail=sync_check(expected, actual)
-    log(f"  EXPECTED: {sorted(set(expected))}")
-    log(f"  ACTIVE   : {actual}")
-    log(f"  STATUS   : {status}")
-    if detail: log("  DETAIL   : "+"; ".join(detail))
-    write_roster(pid, actual, status, notion_key, args.dry_run)
+        log("[4/7] wiring shared memory (honcho.json)")
+        active = write_honcho(primary, adjacent, is_lt, peer_name, honcho_key, notion_key, False)
+        actual = actual_active()
+        expected = [primary] + (["LT"] if is_lt else []) + [f for f in adjacent if f != "LT"]
+        status, detail = sync_check(expected, actual)
+        if status != "✅ Match":
+            raise OnboardingError("profile verification mismatch: " + "; ".join(detail))
 
-    # 6. install profile self-sync so later roster changes propagate automatically
-    log("[6/7] installing profile self-sync (every 15m)")
-    install_profile_sync(args.email, args.dry_run)
+        log("[5/7] installing profile self-sync")
+        install_profile_sync(args.email, False)
+        log("[6/7] installing reviewed fleet gateway and updater")
+        install_fleet_sync(False, bundle)
 
-    # 7. install fleet asset sync (shared skills + scripts, scoped to function set)
-    log("[7/7] installing fleet asset sync (every 30m)")
-    install_fleet_sync(args.dry_run)
+        # Completion is written only after every required setup step succeeded.
+        log("[7/7] recording verified onboarding completion")
+        write_roster(pid, actual, status, notion_key, False)
+    except OnboardingError as exc:
+        log(f"ERROR: {exc}")
+        return 2
+    except Exception:
+        log("ERROR: onboarding preflight or setup failed")
+        return 2
 
-    log("")
-    if status=="✅ Match":
-        log("DONE ✅  Open your agent, use the profile switcher (bottom-right) to pick a space.")
-    else:
-        log("DONE ⚠️  Mismatch — send Wes a screenshot of your roster row. Don't retry blindly.")
+    log("DONE — onboarding verified")
+    return 0
 
-if __name__=="__main__":
-    main()
+
+if __name__ == "__main__":
+    raise SystemExit(main())

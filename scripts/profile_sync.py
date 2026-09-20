@@ -38,7 +38,8 @@ FUNC_MAP = {
     "CS": ("cs", "cs"), "Product/Merch": ("product", "product"),
     "Marketing/Growth": ("marketing", "marketing"), "Company": ("company", "company"),
 }
-SHARED_KEYS = ("HONCHO_API_KEY", "NOTION_API_KEY", "GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+SHARED_KEYS = ("HONCHO_API_KEY", "NOTION_API_KEY")
+LEGACY_GITHUB_KEYS = ("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
 
 
 def env_key(name):
@@ -154,7 +155,8 @@ def strip_shared_keys():
     if not os.path.exists(envp):
         return
     data = open(envp, "rb").read().decode("utf-8", "ignore")
-    lines = [l for l in data.splitlines() if not any(l.startswith(k + "=") for k in SHARED_KEYS)]
+    removable = SHARED_KEYS + LEGACY_GITHUB_KEYS
+    lines = [l for l in data.splitlines() if not any(l.startswith(k + "=") for k in removable)]
     open(envp, "wb").write(("\n".join(lines) + "\n").encode())
 
 
