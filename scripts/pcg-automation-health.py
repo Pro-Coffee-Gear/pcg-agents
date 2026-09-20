@@ -15,6 +15,7 @@ import py_compile
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,9 +23,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/opt/data"))
-sys.path.insert(0, str(HERMES_HOME / "scripts"))
+BUNDLE_SCRIPTS = Path(__file__).resolve().parent
+sys.path.insert(0, str(BUNDLE_SCRIPTS))
 from pcg_automation_core import (incident_transition, is_safe_repo_restore,
                                  parse_health_toml, policy_for)  # noqa: E402
+from pcg_github import ComposioGitHub, GitHubError, REPO_API  # noqa: E402
 
 HERMES_BIN = os.environ.get("HERMES_BIN", "/opt/hermes/.venv/bin/hermes")
 SCRIPTS_DIR = HERMES_HOME / "scripts"
@@ -84,13 +87,19 @@ SUPPORTS = {
 
 
 def env_key(*names: str) -> str:
+    values: dict[str, str] = {}
     envp = HERMES_HOME / ".env"
     if envp.exists():
-        for line in envp.read_text(errors="ignore").splitlines():
-            for name in names:
-                if line.startswith(name + "="):
-                    return line.split("=", 1)[1].strip()
+        try:
+            for line in envp.read_text(errors="ignore").splitlines():
+                if "=" in line and not line.lstrip().startswith("#"):
+                    key, value = line.split("=", 1)
+                    values[key.strip()] = value.strip()
+        except OSError:
+            values = {}
     for name in names:
+        if values.get(name):
+            return values[name]
         if os.environ.get(name):
             return os.environ[name]
     return ""
@@ -109,67 +118,64 @@ def notion(path: str, method: str = "GET", body: dict | None = None) -> dict:
         return json.load(r)
 
 
-def load_health_policies() -> dict[str, dict]:
+def github_adapter() -> ComposioGitHub:
+    return ComposioGitHub.from_environment(home=HERMES_HOME)
+
+
+def load_health_policies(adapter: ComposioGitHub | None = None) -> dict[str, dict]:
     local = HERMES_HOME / "health.toml"
     if local.exists():
         try:
             return parse_health_toml(local.read_text())
-        except Exception:
+        except (OSError, ValueError):
             pass
-    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
-    if not token:
-        return {}
-    req = urllib.request.Request(
-        "https://api.github.com/repos/WWWPCG/pcg-agents/contents/health.toml",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.raw"},
-    )
+    gateway = adapter or github_adapter()
+    data = gateway.read_file("health.toml")
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return parse_health_toml(r.read().decode())
-    except Exception:
-        return {}
+        return parse_health_toml(data.decode("utf-8"))
+    except (UnicodeError, ValueError):
+        raise GitHubError("GitHub health policy file was malformed") from None
 
 
-def safe_restore_script(name: str, policy: dict) -> bool:
-    """Restore a missing pcg-agents script only after validating path and syntax."""
+def safe_restore_script(name: str, policy: dict, adapter: ComposioGitHub | None = None) -> bool:
+    """Restore only an explicitly permitted pcg-agents script through the gateway."""
     if not is_safe_repo_restore(name, policy):
         return False
-    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
-    if not token:
-        return False
     source_path = policy["source_path"]
-    req = urllib.request.Request(
-        f"https://api.github.com/repos/WWWPCG/pcg-agents/contents/{source_path}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.raw"},
-    )
-    tmp = SCRIPTS_DIR / f".{name}.health-restore.tmp"
     dest = SCRIPTS_DIR / name
+    tmp: Path | None = None
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            data = r.read()
-        tmp.write_bytes(data)
+        gateway = adapter or github_adapter()
+        data = gateway.read_file(source_path)
+        SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            dir=SCRIPTS_DIR, prefix=f".{name}.health-restore.", delete=False
+        ) as handle:
+            tmp = Path(handle.name)
+            handle.write(data)
         py_compile.compile(str(tmp), doraise=True)
         os.replace(tmp, dest)
         return True
     except Exception:
-        if tmp.exists():
+        if tmp is not None and tmp.exists():
             tmp.unlink()
         return False
 
 
-def gh_probe() -> tuple[bool, str]:
-    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
-    if not token:
-        return False, "GitHub sync token missing"
-    req = urllib.request.Request(
-        "https://api.github.com/repos/WWWPCG/pcg-agents",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-    )
+def gh_probe(adapter: ComposioGitHub | None = None) -> tuple[bool, str]:
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return (r.status == 200, "")
-    except Exception as e:
-        return False, f"pcg-agents repo probe failed: {type(e).__name__}"
+        gateway = adapter or github_adapter()
+        data = gateway.get(REPO_API)
+        if isinstance(data, dict) and data.get("full_name") == "WWWPCG/pcg-agents":
+            return True, ""
+        return False, "pcg-agents repository probe returned malformed data"
+    except ValueError:
+        return False, "Composio GitHub configuration is missing or invalid"
+    except GitHubError as exc:
+        suffix = f" (status {exc.status})" if exc.status is not None else ""
+        return False, "pcg-agents repository probe failed" + suffix
+    except Exception:
+        return False, "pcg-agents repository probe failed"
 
 
 def notion_probe() -> tuple[bool, str]:
