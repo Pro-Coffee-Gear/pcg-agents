@@ -39,7 +39,11 @@ FUNC_MAP = {
     "Marketing/Growth": ("marketing", "marketing"), "Company": ("company", "company"),
 }
 SHARED_KEYS = ("HONCHO_API_KEY", "NOTION_API_KEY")
-LEGACY_GITHUB_KEYS = ("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+LEGACY_GITHUB_KEYS = (
+    "GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "PCG_GITHUB_ACCOUNT",
+    "PCG_COMPOSIO_CLI", "PCG_GITHUB_ALLOW_SNAPSHOT_WRITE",
+)
+LOCAL_SESSION_POINTERS = ("PCG_COMPOSIO_SESSION_FILE", "PCG_COMPOSIO_PYTHON")
 
 
 def env_key(name):
@@ -155,7 +159,7 @@ def strip_shared_keys():
     if not os.path.exists(envp):
         return
     data = open(envp, "rb").read().decode("utf-8", "ignore")
-    removable = SHARED_KEYS + LEGACY_GITHUB_KEYS
+    removable = SHARED_KEYS + LEGACY_GITHUB_KEYS + LOCAL_SESSION_POINTERS
     lines = [l for l in data.splitlines() if not any(l.startswith(k + "=") for k in removable)]
     open(envp, "wb").write(("\n".join(lines) + "\n").encode())
 

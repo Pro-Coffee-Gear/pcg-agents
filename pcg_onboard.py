@@ -2,10 +2,11 @@
 """
 pcg_onboard.py — onboarding from a reviewed PCG bundle.
 
-New installations require an already-installed, already-authorized Composio CLI
-and an explicit PCG_GITHUB_ACCOUNT selector. The reviewed bundle must contain
-scripts/pcg_github.py and scripts/pcg_sync.py; onboarding never installs or logs
-in to Composio and never accepts or stores a GitHub PAT.
+New installations require a separately provisioned per-person Composio MCP
+session file and an application interpreter containing mcp==2.0.0. The reviewed
+bundle must contain scripts/pcg_composio.py, scripts/pcg_github.py, and
+scripts/pcg_sync.py. Onboarding never creates a session, logs in to Composio,
+copies another person's session, or accepts or stores a GitHub PAT.
 
 Model (post-2026-08-16 redesign):
   - PRIMARY (single-select) = their home function. The default profile points at it.
@@ -13,8 +14,10 @@ Model (post-2026-08-16 redesign):
   - ADJACENT (multi-select) = extra function agents they can switch to.
   - The legacy 'Function' column is a fallback: first non-LT entry -> Primary; 'LT' in it -> LT member.
 
-Usage (non-GitHub keys are supplied out of band; account selector is per instance):
-  PCG_GITHUB_ACCOUNT=... HONCHO_API_KEY=... NOTION_API_KEY=... python3 pcg_onboard.py --email you@procoffeegear.com
+Usage (non-GitHub keys are supplied out of band; the session is pre-provisioned):
+  PCG_COMPOSIO_SESSION_FILE=/secure/member-session.json \
+  PCG_COMPOSIO_PYTHON=/opt/hermes/.venv/bin/python \
+  HONCHO_API_KEY=... NOTION_API_KEY=... python3 pcg_onboard.py --email you@procoffeegear.com
   ... --dry-run  # local prerequisite check only; no network and no mutation
 """
 import argparse
@@ -22,6 +25,7 @@ import importlib.util
 import json
 import os
 import py_compile
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -63,14 +67,15 @@ class OnboardingError(RuntimeError):
 
 
 def reviewed_bundle_scripts():
-    """Locate a bundle that already contains both gateway and updater."""
+    """Locate a bundle containing the generic client, adapter, and updater."""
     here = Path(__file__).resolve().parent
     candidates = [here / "scripts", here, Path(HERMES_HOME) / "scripts"]
+    required = ("pcg_composio.py", "pcg_github.py", "pcg_sync.py")
     for candidate in candidates:
-        if (candidate / "pcg_github.py").is_file() and (candidate / "pcg_sync.py").is_file():
+        if all((candidate / name).is_file() for name in required):
             return candidate
     raise OnboardingError(
-        "reviewed bundle is incomplete: scripts/pcg_github.py and scripts/pcg_sync.py are required"
+        "reviewed bundle is incomplete: pcg_composio.py, pcg_github.py, and pcg_sync.py are required"
     )
 
 
@@ -80,32 +85,60 @@ def load_gateway_module(bundle):
     if spec is None or spec.loader is None:
         raise OnboardingError("reviewed GitHub adapter could not be loaded")
     module = importlib.util.module_from_spec(spec)
+    bundle_text = str(Path(bundle))
+    added = bundle_text not in sys.path
+    if added:
+        sys.path.insert(0, bundle_text)
     try:
         spec.loader.exec_module(module)
     except Exception:
         raise OnboardingError("reviewed GitHub adapter could not be loaded") from None
+    finally:
+        if added:
+            sys.path.remove(bundle_text)
     return module
 
 
+def _validate_composio_runtime(executable):
+    runtime = Path(executable)
+    if not runtime.is_absolute() or not runtime.is_file() or not os.access(runtime, os.X_OK):
+        raise OnboardingError("PCG_COMPOSIO_PYTHON must be an existing absolute executable")
+    try:
+        result = subprocess.run(
+            [str(runtime), "-c", "import importlib.metadata; print(importlib.metadata.version('mcp'))"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        raise OnboardingError("could not validate the Composio application interpreter") from None
+    if result.returncode != 0 or (result.stdout or "").strip() != "2.0.0":
+        raise OnboardingError("PCG_COMPOSIO_PYTHON must provide mcp==2.0.0")
+    return str(runtime)
+
+
 def github_preflight(dry_run=False):
-    """Validate the local bundle/CLI, then prove private read access when live."""
+    """Validate bundle/session/runtime, then prove private read access when live."""
     bundle = reviewed_bundle_scripts()
-    account = (os.environ.get("PCG_GITHUB_ACCOUNT") or "").strip()
-    executable = (os.environ.get("PCG_COMPOSIO_CLI") or str(Path.home() / ".composio" / "composio")).strip()
-    if not account:
-        raise OnboardingError("PCG_GITHUB_ACCOUNT must be set for this instance")
-    cli_path = Path(executable)
-    if not cli_path.is_absolute() or not cli_path.is_file() or not os.access(cli_path, os.X_OK):
-        raise OnboardingError("PCG_COMPOSIO_CLI must be an existing absolute executable")
+    session_file = (os.environ.get("PCG_COMPOSIO_SESSION_FILE") or "").strip()
+    runtime = (os.environ.get("PCG_COMPOSIO_PYTHON") or "/opt/hermes/.venv/bin/python").strip()
+    if not session_file:
+        raise OnboardingError("PCG_COMPOSIO_SESSION_FILE must point to this member's provisioned session")
     module = load_gateway_module(bundle)
+    try:
+        client = module.ComposioClient(session_file)
+    except (ValueError, module.ComposioError):
+        raise OnboardingError("per-person Composio session configuration is invalid") from None
+    runtime = _validate_composio_runtime(runtime)
     if dry_run:
-        return bundle, account, str(cli_path), None
-    adapter = module.ComposioGitHub(account, str(cli_path))
+        return bundle, session_file, runtime, None
+    adapter = module.ComposioGitHub(client)
     repo = adapter.get(module.REPO_API)
     if not isinstance(repo, dict) or repo.get("full_name") != "WWWPCG/pcg-agents":
         raise OnboardingError("Composio GitHub repository preflight returned malformed data")
     adapter.read_file("health.toml")
-    return bundle, account, str(cli_path), adapter
+    return bundle, session_file, runtime, adapter
 
 
 # ---------- Notion ----------
@@ -138,8 +171,8 @@ def roster_row(email, key):
     return row["id"], primary, adjacent, is_lt
 
 # ---------- .env ----------
-def store_keys(honcho_key, notion_key, github_account, composio_cli):
-    """Persist app keys plus nonsecret gateway selection; remove legacy PATs."""
+def store_keys(honcho_key, notion_key, session_file, composio_python):
+    """Persist app keys and local pointers; never copy session URL or headers."""
     env_path = os.path.join(HERMES_HOME, ".env")
     existing = b""
     if os.path.exists(env_path):
@@ -148,6 +181,7 @@ def store_keys(honcho_key, notion_key, github_account, composio_cli):
     managed = (
         "HONCHO_API_KEY", "NOTION_API_KEY", "GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN",
         "PCG_GITHUB_ACCOUNT", "PCG_COMPOSIO_CLI", "PCG_GITHUB_ALLOW_SNAPSHOT_WRITE",
+        "PCG_COMPOSIO_SESSION_FILE", "PCG_COMPOSIO_PYTHON",
     )
     lines = [
         line for line in existing.decode("utf-8", "ignore").splitlines()
@@ -156,8 +190,8 @@ def store_keys(honcho_key, notion_key, github_account, composio_cli):
     lines.extend([
         f"HONCHO_API_KEY={honcho_key}",
         f"NOTION_API_KEY={notion_key}",
-        f"PCG_GITHUB_ACCOUNT={github_account}",
-        f"PCG_COMPOSIO_CLI={composio_cli}",
+        f"PCG_COMPOSIO_SESSION_FILE={session_file}",
+        f"PCG_COMPOSIO_PYTHON={composio_python}",
     ])
     Path(env_path).parent.mkdir(parents=True, exist_ok=True)
     Path(env_path).write_text("\n".join(lines) + "\n")
@@ -304,7 +338,11 @@ FUNC_MAP = {
     "Marketing/Growth": ("marketing", "marketing"), "Company": ("company", "company"),
 }
 SHARED_KEYS = ("HONCHO_API_KEY", "NOTION_API_KEY")
-LEGACY_GITHUB_KEYS = ("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+LEGACY_GITHUB_KEYS = (
+    "GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN", "PCG_GITHUB_ACCOUNT",
+    "PCG_COMPOSIO_CLI", "PCG_GITHUB_ALLOW_SNAPSHOT_WRITE",
+)
+LOCAL_SESSION_POINTERS = ("PCG_COMPOSIO_SESSION_FILE", "PCG_COMPOSIO_PYTHON")
 
 
 def env_key(name):
@@ -420,7 +458,7 @@ def strip_shared_keys():
     if not os.path.exists(envp):
         return
     data = open(envp, "rb").read().decode("utf-8", "ignore")
-    removable = SHARED_KEYS + LEGACY_GITHUB_KEYS
+    removable = SHARED_KEYS + LEGACY_GITHUB_KEYS + LOCAL_SESSION_POINTERS
     lines = [l for l in data.splitlines() if not any(l.startswith(k + "=") for k in removable)]
     open(envp, "wb").write(("\n".join(lines) + "\n").encode())
 
@@ -601,32 +639,55 @@ def _install_bundle_file(source, destination):
         raise OnboardingError(f"could not install reviewed {destination.name}") from None
 
 
-def install_fleet_sync(dry, bundle_scripts=None):
-    """Install gateway and updater from one reviewed local bundle before cron."""
+def install_fleet_sync(dry, bundle_scripts=None, composio_python=None):
+    """Install the reviewed three-file client bundle and an explicit runtime launcher."""
     bundle = Path(bundle_scripts) if bundle_scripts is not None else reviewed_bundle_scripts()
+    generic_source = bundle / "pcg_composio.py"
     adapter_source = bundle / "pcg_github.py"
     sync_source = bundle / "pcg_sync.py"
-    if not adapter_source.is_file() or not sync_source.is_file():
+    if not all(path.is_file() for path in (generic_source, adapter_source, sync_source)):
         raise OnboardingError("reviewed fleet bundle is incomplete")
+    runtime = _validate_composio_runtime(
+        composio_python or os.environ.get("PCG_COMPOSIO_PYTHON") or "/opt/hermes/.venv/bin/python"
+    )
     scripts_dir = Path(HERMES_HOME) / "scripts"
+    generic_dest = scripts_dir / "pcg_composio.py"
     adapter_dest = scripts_dir / "pcg_github.py"
     sync_dest = scripts_dir / "pcg_sync.py"
+    launcher_dest = scripts_dir / "pcg-fleet-sync.sh"
     if dry:
-        log("  [dry] would install reviewed gateway + updater and register pcg-fleet-sync")
+        log("  [dry] would install reviewed client + adapter + updater with explicit runtime launcher")
         return
 
+    _install_bundle_file(generic_source, generic_dest)
     _install_bundle_file(adapter_source, adapter_dest)
     _install_bundle_file(sync_source, sync_dest)
-    # Both files must still be importable Python before any schedule is created.
+    # All Python files must still be importable syntax before any schedule is created.
     try:
-        py_compile.compile(str(adapter_dest), doraise=True)
-        py_compile.compile(str(sync_dest), doraise=True)
+        for path in (generic_dest, adapter_dest, sync_dest):
+            py_compile.compile(str(path), doraise=True)
+        launcher = (
+            "#!/bin/bash\nset -eu\nexec "
+            + shlex.quote(runtime) + " " + shlex.quote(str(sync_dest)) + "\n"
+        )
+        with tempfile.NamedTemporaryFile(
+            dir=scripts_dir, prefix="." + launcher_dest.name + ".", delete=False, mode="w"
+        ) as handle:
+            temporary_launcher = Path(handle.name)
+            handle.write(launcher)
+        os.chmod(temporary_launcher, 0o700)
+        os.replace(temporary_launcher, launcher_dest)
     except Exception:
-        raise OnboardingError("installed fleet bundle failed syntax validation") from None
+        try:
+            if "temporary_launcher" in locals() and temporary_launcher.exists():
+                temporary_launcher.unlink()
+        except OSError:
+            pass
+        raise OnboardingError("installed fleet bundle failed runtime validation") from None
 
-    # Initial pull proves the installed updater works before cron registration.
+    # Initial pull proves the explicit application interpreter and installed updater work.
     result = subprocess.run(
-        [sys.executable, str(sync_dest)],
+        [runtime, str(sync_dest)],
         capture_output=True,
         text=True,
         timeout=180,
@@ -643,12 +704,15 @@ def install_fleet_sync(dry, bundle_scripts=None):
     )
     if result.returncode != 0:
         raise OnboardingError("could not inspect fleet cron jobs")
-    if "pcg-fleet-sync" in (result.stdout + result.stderr):
-        log("  cron 'pcg-fleet-sync' already registered — skipping")
-        return
+    listing = result.stdout + result.stderr
+    if "pcg-fleet-sync" in listing:
+        if "pcg-fleet-sync.sh" in listing:
+            log("  cron 'pcg-fleet-sync' already uses the explicit runtime launcher — skipping")
+            return
+        raise OnboardingError("existing pcg-fleet-sync must be replaced with the explicit runtime launcher")
     result = subprocess.run(
         [HERMES_BIN, "cron", "create", "every 30m",
-         "--name", "pcg-fleet-sync", "--script", "pcg_sync.py",
+         "--name", "pcg-fleet-sync", "--script", "pcg-fleet-sync.sh",
          "--no-agent", "--deliver", "local"],
         capture_output=True,
         text=True,
@@ -656,7 +720,7 @@ def install_fleet_sync(dry, bundle_scripts=None):
     )
     if result.returncode != 0:
         raise OnboardingError("could not register pcg-fleet-sync")
-    log("  cron 'pcg-fleet-sync': registered (every 30m)")
+    log("  cron 'pcg-fleet-sync': registered (every 30m, explicit MCP runtime)")
 
 # ---------- main ----------
 def main(argv=None):
@@ -677,9 +741,9 @@ def main(argv=None):
     try:
         # This must remain first: a failed gateway/bundle preflight may not store
         # keys, create profiles, touch roster state, or register jobs.
-        bundle, github_account, composio_cli, _adapter = github_preflight(args.dry_run)
+        bundle, session_file, composio_python, _adapter = github_preflight(args.dry_run)
         if args.dry_run:
-            log("  [dry] local bundle, account selector, and Composio executable are present")
+            log("  [dry] local bundle, per-person session file, and MCP runtime are valid")
             log("  [dry] no network calls or mutations were performed")
             return 0
 
@@ -693,7 +757,7 @@ def main(argv=None):
         log(f"  Primary: {primary}  Adjacent: {adjacent}  LT member: {is_lt}")
 
         log("[2/7] storing instance configuration")
-        store_keys(honcho_key, notion_key, github_account, composio_cli)
+        store_keys(honcho_key, notion_key, session_file, composio_python)
 
         log("[3/7] creating profiles")
         have = existing_profiles()
@@ -717,8 +781,8 @@ def main(argv=None):
 
         log("[5/7] installing profile self-sync")
         install_profile_sync(args.email, False)
-        log("[6/7] installing reviewed fleet gateway and updater")
-        install_fleet_sync(False, bundle)
+        log("[6/7] installing reviewed fleet client, adapter, and updater")
+        install_fleet_sync(False, bundle, composio_python)
 
         # Completion is written only after every required setup step succeeded.
         log("[7/7] recording verified onboarding completion")

@@ -18,13 +18,20 @@ Onboarding + verification scripts for the Pro Coffee Gear agent fleet.
   through a managed policy block.
 
 ## Usage
-Keys are supplied at runtime (never stored here):
+Keys and the pointer to a separately provisioned per-person Composio MCP session
+are supplied at runtime (never stored in this repository):
 
 ```bash
-curl -sL https://raw.githubusercontent.com/WWWPCG/pcg-agents/main/pcg_onboard.py -o pcg_onboard.py && \
+PCG_COMPOSIO_SESSION_FILE=/absolute/private/path/member-session.json \
+PCG_COMPOSIO_PYTHON=/opt/hermes/.venv/bin/python \
 HONCHO_API_KEY=<key> NOTION_API_KEY=<key> \
 python3 pcg_onboard.py --email you@procoffeegear.com
 ```
 
-These scripts contain **no credentials**. Access to the shared brain is
-controlled entirely by the keys passed at runtime.
+The session file must be mode 0600 and centrally authorized before onboarding.
+Its URL and headers are never copied into this repository or shared profiles.
+See `docs/github-composio-migration.md` for the pending live authorization and
+rollout blockers.
+
+These scripts contain **no credentials**. Access to the shared brain and GitHub
+remains controlled by separately provisioned credentials and central services.

@@ -1,153 +1,242 @@
-# GitHub access through Composio: migration and rollout contract
+# GitHub access through centrally authorized Composio MCP sessions
 
-## Status and current scope
+## Status: code complete locally; authorization and rollout still blocked
 
-This repository contains the reviewed code migration. It does not mean the fleet rollout is complete.
+This repository contains the client-side revision only. It does not prove that Composio currently enforces the intended per-person permissions, and it does not mean fleet rollout is complete.
 
-The migrated GitHub callers are:
+Two external requirements remain unverified and blocking:
 
-- `pcg_sync.py` and its byte-identical distribution copy `scripts/pcg_sync.py`
-- `scripts/pcg-automation-health.py`
-- `scripts/pcg-deliverable-reconcile.py`
-- `pcg_onboard.py`
+1. An administrator must centrally provision each person's Composio account, GitHub connection, MCP session, and exposed direct tools.
+2. An authorized operator must demonstrate server-side allow, deny, and revocation behavior with real sessions. The unit tests use mocks and are not proof of live Composio enforcement.
 
-They use the constrained stdlib adapter in `scripts/pcg_github.py`. The adapter invokes one configured Composio executable without a shell and selects one configured GitHub connection on every request. These callers have no GitHub PAT fallback.
+## Evidence: parent live pilot vs mock build tests
 
-Native Git operations are separate. A developer's `git fetch`, `git push`, credential helper, SSH key, or GitHub CLI login is not routed through this adapter and is not changed by this migration.
+The unit tests in this repository are mocks. They prove client behavior only and are not proof of live Composio enforcement.
 
-No production account selector is recorded in this repository. No fleet configuration, cron job, Composio authorization, deployment, login, or live probe is performed by this change.
+Separately, the parent operator ran a live administrative pilot with a single central admin credential (parent-only probe, outside this repository). That pilot verified, on the real service:
 
-## Required per-instance configuration
+- a session centrally allowed `HACKERNEWS_GET_USER` executed it, while a distinct session exposing only `HACKERNEWS_GET_ITEM` was denied the same slug (`MCP error -32602`, tool not found);
+- a central policy update revoked a previously allowed tool with no client URL/config change, and the original policy was then restored and read back;
+- raw session proxy execution was disabled server-side (HTTP 403, code 4327, slug `ToolRouterV2_ProxyExecutionDisabled`);
+- the session MCP endpoint without authentication returned HTTP 401 "API key is required".
 
-Each instance needs its own explicit connection selector and an already-installed, already-authorized Composio CLI:
+Both pilot sessions used the same central admin credential. This is server-policy evidence, not separate-user authentication proof: it does not demonstrate that per-person scoped credentials exist, that one person cannot use another person's session, or that a least-privilege execution-only credential is available. No project GitHub auth configs or connected accounts existed at pilot inspection time, so no GitHub tool has been exercised live. Rollout remains blocked until real scoped teammate credentials are verified server-side.
 
-```text
-PCG_GITHUB_ACCOUNT=<instance-specific-selector>
-PCG_COMPOSIO_CLI=/absolute/path/to/.composio/composio
+No production configuration, login, session creation, deployment, cron mutation, or live API probe was performed by this revision. The earlier CLI migration did not implement this central-session model and must not be cited as proof that it did.
+
+## Authorization model
+
+Every person gets their own centrally provisioned Composio session. GitHub connections remain company-owned; central administration selects which connection a session may use — the box never selects an account, and this document does not require each person to own a separate GitHub connection. The application code is identical on every box. Identity and connected-account selection are bound by the provisioned MCP session, not passed by the client.
+
+A `user_id` string in a session-creation payload is a central provisioning label. It is not, by itself, a separate authenticated Composio human, and distinct labels do not prove per-person isolation. Safe identity binding (one session credential usable only by its intended person, with individually revocable person/job access) must be demonstrated server-side before rollout.
+
+Composio is the authorization authority. Central administration must decide which named direct tools each person's session can execute. Repository and branch values sent by an application describe business targets; they are not local authorization rules. URL validation, response validation, and supported-route translation are security and compatibility controls, not business authorization.
+
+The client deliberately has no:
+
+- hardcoded user, role, connected-account, repository-permission, or allowed-tool list;
+- local write-enable flag;
+- client-supplied transport or session identity (identity is bound by the provisioned session; the MCP `tools/call` envelope carries only the tool name and caller-supplied business arguments, and argument keys such as `user_id` that belong to an app's own data model pass through as data);
+- administrative session APIs (create/patch/delete session) or any proxy/workbench fallback reachable from generic tool dispatch;
+- Composio CLI, proxy, direct unscoped execute API, or PAT fallback;
+- automatic fallback to a default GitHub branch;
+- fallback to broad proxy or meta/workbench tools when a direct tool is missing;
+- mutation retry, rebase, or force-update behavior.
+
+A server denial is terminal for that call. A missing direct tool is a provisioning failure. Neither condition triggers a broader fallback.
+
+## Central MCP provisioning contract
+
+The exact session-creation payload verified in the parent live pilot (read-only scratch source `policy_pilot.py`, never a credential store) is a `POST /api/v3.1/tool_router/session` body with:
+
+- `user_id`: a central provisioning label for the person or automation role;
+- `toolkits`: `enable` limited to the required toolkit(s);
+- `tools`: per-toolkit `enable` allowlist naming only the approved direct tools;
+- `manage_connections`: `enable: false`, `enable_connection_removal: false`;
+- `workbench`: `enable: false`, `enable_tool_execution: false`, `enable_proxy_execution: false`;
+- `preload`: `tools: "all"`;
+- `search`: `enable: false`;
+- `execute`: `enable_multi_execute: false`.
+
+An earlier draft of this document described an `mcp: true` / direct-tools preset; that preset was not used in the verified pilot and is not the grounded contract. The response `mcp.url` is the session endpoint (`https://backend.composio.dev/tool_router/<session-id>/mcp` in the pilot) and is itself a bearer secret stored privately at mode 0600.
+
+The generic client calls each tool slug through MCP `tools/call`; it does not call `tools/list` as a local permission gate. Server execution remains authoritative even if a tool name is known to the application.
+
+Read workflows currently require these direct tools:
+
+- `GITHUB_GET_A_REPOSITORY`
+- `GITHUB_GET_A_REFERENCE`
+- `GITHUB_GET_A_TREE`
+- `GITHUB_GET_REPOSITORY_CONTENT`
+
+The Approved-deliverables snapshot writer additionally requires:
+
+- `GITHUB_GET_COMMIT_OBJECT`
+- `GITHUB_CREATE_A_BLOB`
+- `GITHUB_CREATE_A_TREE`
+- `GITHUB_CREATE_A_COMMIT`
+- `GITHUB_UPDATE_A_REFERENCE`
+- `GITHUB_GET_A_BLOB`
+
+Do not expose `GITHUB_CREATE_OR_UPDATE_FILE_CONTENTS` to this writer. Its inspected `20260916_00` behavior can retry a 409 with the latest SHA and can fall back from a nonexistent branch to the default branch. Both behaviors violate the writer's concurrency contract.
+
+This document does not claim that a particular dashboard screen supports these controls. A centrally stored policy administered through a verified Composio administrative API is acceptable. The administrator must retain evidence of the actual mechanism and the resulting server behavior.
+
+## Per-person session configuration
+
+Each box needs a separately provisioned mode-0600 JSON file owned by the local user:
+
+```json
+{
+  "url": "https://backend.composio.dev/tool_router/<session-id>/mcp",
+  "headers": {
+    "Authorization": "Bearer <per-person-session-credential>"
+  }
+}
 ```
 
-`PCG_GITHUB_ACCOUNT` may be the selector form supported by the provisioned Composio connection, including an account ID or alias/ID. It must not be replaced with a shared example value.
-
-`PCG_COMPOSIO_CLI` is an absolute executable path, not a configuration directory. If omitted by a normal adapter caller, the default is:
+The literal values above are placeholders, not a token format claim. Use only the URL and headers returned by the verified provisioning flow. Set a local pointer and an application interpreter:
 
 ```text
-~/.composio/composio
+PCG_COMPOSIO_SESSION_FILE=/absolute/private/path/member-session.json
+PCG_COMPOSIO_PYTHON=/opt/hermes/.venv/bin/python
 ```
 
-Snapshot writes are off unless this exact setting is explicitly enabled on the reconcile instance:
+The client accepts HTTPS endpoints only on the exact official hosts `backend.composio.dev` (returned by the real create-session API) and `mcp.composio.dev` (documented MCP host). It rejects lookalike hosts, userinfo, nonstandard ports, fragments, private/untrusted hosts, and disables HTTP redirects. It never prints the endpoint or headers because the URL itself may contain a bearer secret. Transport validation is a security control, not business authorization.
+
+`x-api-key`, `x-composio-api-key`, `x-user-api-key`, `x-org-api-key`, `x-org-id`, `x-project-id`, and equivalent administration headers are rejected in teammate session files. A Composio administration key is not a teammate session credential and must not be distributed to boxes; the pilot client needed no headers beyond the session URL itself. These local header checks are a fail-closed guard against obvious admin-key misuse: they do not enforce permissions, do not prove an opaque bearer credential is safe, and do not prove that every project-scoped key is always full-access. Only server-side verification of the actual credential's least-privilege scope can prove that, and it remains a production dependency. If the actual hosted MCP deployment requires a privileged project key at the client, deployment is blocked until a safe server-mediated or otherwise scoped credential-delivery design is proven. Do not invent a scoped token.
+
+The session file must be provisioned separately for that person. Onboarding records only its local path and the interpreter path; it does not copy the file, URL, headers, another person's auth store, or credentials into generated bundles or shared profiles. Offboarding removes local environment pointers but does not delete the separately managed session file; central revocation remains required.
+
+## Runtime dependency
+
+The dedicated dependency declaration is:
 
 ```text
-PCG_GITHUB_ALLOW_SNAPSHOT_WRITE=true
+requirements-composio.txt: mcp==2.0.0
 ```
 
-That gate only permits `PUT /repos/WWWPCG/pcg-agents/contents/deliverables.toml` on branch `main`. It does not permit arbitrary repository writes, POST, or DELETE. The deliverables caller supplies the existing file SHA, does not retry an uncertain write, and reads the exact returned commit back before reporting success.
-
-Do not configure `GITHUB_SYNC_TOKEN`, `GITHUB_TOKEN`, or `GH_TOKEN` for these callers. Onboarding removes legacy PAT entries rather than propagating them. It persists only the nonsecret Composio executable and account-selection settings; it never copies a Composio auth store or another person's CLI session.
-
-## Connection scope
-
-Provision a dedicated, least-privilege connection for each automation role or instance. Do not select a broad personal GitHub connection merely because it already works.
-
-The local adapter is defense in depth, not an authorization sandbox. Its request allowlist limits this code to `WWWPCG/pcg-agents`, and its only write route is `deliverables.toml`, but the broker-side connection must independently enforce repository and operation scope. Account revocation, audit, and authorization remain Composio/GitHub controls.
-
-Suggested separation:
-
-- Fleet and health instances: repository read access only.
-- Deliverables reconcile instance: read access plus only the reviewed snapshot update capability.
-- Repair agent: a separately scoped connection and workflow for branches and draft pull requests.
-
-## Read-only validation
-
-After the reviewed bundle and per-instance connection are provisioned, an operator may run:
-
-```bash
-python3 scripts/pcg_github.py --check
-```
-
-The check is intentionally read-only. It probes repository metadata and reads `health.toml`, a representative private file. Output contains only a safe pass/fail status; it does not print the account selector, subprocess output, broker errors, file content, or credentials.
-
-This command is a real network check. It is not run by unit tests or by a dry-run onboarding command.
-
-## Reviewed bundle onboarding
-
-New onboarding requires a reviewed bundle containing both:
+Use a separate application virtual environment containing that exact dependency, or the provided Hermes runtime interpreter:
 
 ```text
+/opt/hermes/.venv/bin/python
+```
+
+Do not install packages into or otherwise mutate the managed Hermes environment. The onboarding preflight verifies that the selected interpreter reports `mcp==2.0.0`. It installs an explicit `pcg-fleet-sync.sh` launcher that invokes the validated interpreter, and registers that launcher rather than silently scheduling `pcg_sync.py` under an unknown `python3`.
+
+An existing `pcg-fleet-sync` job that does not identify the launcher is a migration blocker and must be replaced by an operator; onboarding fails rather than silently retaining it.
+
+## Generic client behavior
+
+`scripts/pcg_composio.py` is application-neutral. `ComposioClient.execute(tool_slug, arguments)` creates one short-lived MCP streamable-HTTP transport and one initialized official `mcp.ClientSession` per call. A whole-call asyncio timeout covers connection, initialization, tool execution, and teardown. Mutations are not retried.
+
+The client supports Composio results in either MCP `structuredContent` or one `content[]` text JSON item. It:
+
+- bounds arguments and response payloads;
+- rejects malformed and non-JSON result shapes;
+- validates MCP `isError` and Composio `successful`, `error`/`errors`, and explicit status fields;
+- treats MCP plain-text errors (for example `MCP error -32602: Tool X not found`) as typed failures using only the structured JSON-RPC code prefix — never as malformed success payloads and never as a provider 404;
+- preserves an explicitly typed provider status;
+- distinguishes server/session denial from a typed provider 404;
+- sanitizes timeout, transport, provider, and denial exceptions.
+
+It does not parse provider error prose to infer a status. In particular, authorization denial is never converted to “missing file” based on a message string.
+
+## GitHub compatibility adapter
+
+`scripts/pcg_github.py` is a thin translator over the generic client. It preserves the existing `.get`, `.get_contents`, `.read_file`, and `.put_contents` interfaces used by fleet sync, health, and deliverables reconcile.
+
+Known REST-shaped read paths translate to named direct tools. Unknown paths fail as unsupported compatibility API; that is not represented as a server authorization decision. Owner, repository, path, ref, and branch are validated as workflow inputs. The generic transport remains unaware of GitHub repositories.
+
+File reads retain exact base64, nonnegative integer size, truncation, and immutable blob-SHA validation.
+
+## Snapshot write concurrency contract
+
+The writer performs one low-level Git Data transaction without retry:
+
+1. Resolve the requested `heads/<branch>` once to head `H`. A missing branch fails; there is no default-branch fallback.
+2. Read the target at immutable `H` and verify the caller's expected blob SHA, or obtain a typed provider 404 for creation.
+3. Read commit `H`, obtain its tree, and fetch a complete recursive tree. Creation additionally requires the target path to be absent from this complete tree.
+4. Create the desired base64 blob and read it back by immutable SHA.
+5. Create a tree with the verified commit tree as `base_tree` and one exact target-path entry. Read the new tree back and prove every non-target entry is unchanged.
+6. Create a commit with exactly parent `H` and the verified new tree. Read the commit back and verify its SHA, tree, and parent.
+7. Update `heads/<branch>` once with `force: false`.
+8. Read the reference back and require it to point to the new commit. Read the target at the immutable new commit and verify exact content and blob SHA.
+
+A stale head typically causes GitHub to reject the non-fast-forward update with 409 or 422. The client does not retry, rebase, fetch a newer SHA, or force the ref. A failed ref update can leave unreachable immutable blob/tree/commit objects; those objects are harmless and require no destructive cleanup by this workflow.
+
+The returned compatibility shape is:
+
+```json
+{
+  "commit": {"sha": "<commit>", "html_url": "<canonical GitHub commit URL>"},
+  "content": {"sha": "<blob>"}
+}
+```
+
+The reconcile caller still reads the immutable commit back before reporting success.
+
+## Onboarding and fleet safety
+
+The reviewed distribution bundle now contains all three files:
+
+```text
+scripts/pcg_composio.py
 scripts/pcg_github.py
 scripts/pcg_sync.py
 ```
 
-The Composio executable and selected connection must be provisioned and authorized separately before onboarding starts. `pcg_onboard.py` does not install Composio, initiate login, copy CLI authorization data, or fetch the adapter through an adapter that is not yet present.
+The per-person session file is pre-provisioned separately and is never part of this bundle.
 
-Live onboarding performs the GitHub repository/private-file preflight before storing keys, creating profiles, changing `honcho.json`, registering cron jobs, or writing onboarding completion to Notion. Fleet cron registration occurs only after the adapter and updater are installed from the same reviewed local bundle and an initial updater run succeeds. Onboarding completion is written last.
+Live onboarding validates the bundle, session-file security and endpoint, and MCP runtime before any storage, profile, roster, or cron mutation. It then proves repository and representative private-file read access before making local changes. Completion is written to the roster last.
 
 `--dry-run` performs local prerequisite checks only. It makes no network calls and performs no mutation.
 
-## Fleet-sync behavior
+Fleet sync retains the independent-review guarantees from the previous migration: repository probe, one immutable main head, complete tree, blob verification, path/manifest safety, all remote fetches before local mutation, and heartbeat only after success. Root and distribution updater copies remain byte-identical. The generic client, adapter, and updater are installed before the explicit-runtime cron is registered.
 
-A sync run:
+## Safe read-only live check
 
-1. Probes the expected private repository.
-2. Resolves `main` once.
-3. Loads one recursive Git tree at that commit and rejects a truncated or malformed tree.
-4. Reads required files at the same pinned commit and validates each blob SHA.
-5. Only then mutates local files, plugin policy, cron state, the fleet manifest, and finally the success heartbeat.
+After an administrator has provisioned one real per-person session and central policy, run:
 
-An auth failure, timeout, malformed response, failed file fetch, failed local/Hermes mutation, or missing gateway configuration returns nonzero and does not write the success heartbeat. A GitHub 404 is not inferred from exception text and cannot trigger quarantine. Quarantine is based only on absence from a complete tree obtained after a successful repository probe.
+```bash
+PCG_COMPOSIO_SESSION_FILE=/absolute/private/path/member-session.json \
+/opt/hermes/.venv/bin/python scripts/pcg_github.py --check
+```
 
-Non-PCG local files retain the existing conflict rule. Repo-managed `pcg-`/`pcg_` files may be replaced. Function profiles remain add-only. Repository response paths and manifest destinations are validated so they cannot escape their designated local roots.
+The command performs a real network call. It reads repository metadata and `health.toml` only. It does not write, create a session, log in, list tools as a permission gate, or print URL/header values.
 
-## Health and deliverables behavior
+Passing this read check proves only that this session can perform those reads. It does not prove read-only enforcement, write authorization, another person's isolation, or revocation. The pending live server-side proof must include at least:
 
-The automation health monitor uses the same gateway for:
+- a session centrally allowed to execute an approved direct tool;
+- a distinct session centrally denied the same tool;
+- revocation taking effect without a client/code/config change;
+- provider 404 remaining distinguishable from authorization denial;
+- a missing direct tool failing without proxy/workbench fallback;
+- a safe sandbox write proving the low-level output shapes and 409/422 concurrency behavior before any production write is enabled.
 
-- the GitHub dependency probe;
-- the `health.toml` policy fallback;
-- a policy-permitted script restoration.
+No real write was performed for this revision.
 
-Restoration still requires the existing repository/path policy check and Python syntax validation. A detect-only, malformed, external-repository, or traversal policy cannot restore a file.
+## Rollout blockers and rollback
 
-The deliverables reconcile publishes only Notion rows whose curation status is Approved. It probes repository access before treating a missing snapshot as a legitimate 404, performs a content no-op when possible, uses SHA optimistic concurrency, writes only branch `main`, never blindly retries, and verifies the exact commit/file content before printing success.
+Rollout remains blocked by both the pending central authorization proof above and the external legacy invitation generator:
 
-## Repair-agent path
+`/opt/data/scripts/gen_onboard_file.py`
 
-Repair automation must use a separately authorized Composio API workflow to create a branch and open a draft pull request. The production adapter in this repository deliberately does not expose POST or arbitrary PUT routes and therefore is not a general PR client.
+That file is outside this repository and is reported to embed GitHub PAT material. It was not changed here. Do not enable this rollout or claim migration complete until the generator is replaced or disabled and its generated artifacts are reviewed.
 
-A repair run must remain read-only until it has reproduced the failure and produced tests. Any branch creation or draft-PR API call needs explicit authorization and read-back verification. This migration does not authorize edits to live cron jobs, direct pushes to `main`, automatic merges, or deployment changes.
+Rollout should use one reviewed immutable bundle. Start with one read-only test instance, run the live checks, verify central denial and revocation, then stage read-only instances. Approve the snapshot writer separately only after sandbox output-shape and concurrency checks pass.
 
-## Deterministic staged rollout and rollback
+For rollback, pause affected schedules, restore the previously reviewed bundle and job definition, and run its documented read-only check before re-enabling. Do not restore PAT distribution. Preserve manifests and `.revoked` files for review.
 
-Rollout is pending explicit approval. The parent operator should record a reviewed commit or immutable bundle digest and use that same artifact for each stage.
+## Local verification
 
-Recommended sequence:
-
-1. Replace or disable the legacy invitation generator described below.
-2. Review and pin the complete bundle containing adapter, updater, health, reconcile, onboarding, tests, and this document.
-3. Provision dedicated scoped Composio connections separately on a test instance.
-4. Run the read-only `--check` command.
-5. Run the mocked/local test gates from the pinned bundle.
-6. Enable one read-only fleet instance and observe a real sync and heartbeat.
-7. Roll out read-only instances in approved batches.
-8. Separately approve the one reconcile write connection before enabling its explicit write gate.
-
-Rollback must also use a reviewed, pinned bundle. Disable affected schedules first, restore the previously approved code/config bundle, and run its documented read-only verification before re-enabling schedules. Do not restore legacy PAT distribution as an automatic rollback. Preserve manifests and `.revoked` files for review; do not delete them blindly.
-
-## Blocking legacy generator
-
-`/opt/data/scripts/gen_onboard_file.py` is outside this repository and is reported to embed GitHub PAT material.
-
-**This is a blocking rollout dependency. Do not enable Composio-based onboarding or claim fleet migration complete until that generator is replaced or disabled and its generated artifacts are reviewed.**
-
-This repository does not modify that live file. The replacement must distribute reviewed bundle instructions and per-instance scoped-connection provisioning steps, not credentials or a shared human Composio session.
-
-## Local verification gates
-
-All tests use mocked subprocess/network behavior and temporary homes:
+All local authorization and network behavior is mocked; fixtures use temporary directories:
 
 ```bash
 python3 .github/lint.py
 python3 -m unittest discover -s tests -v
+/opt/hermes/.venv/bin/python -m unittest discover -s tests -v
 git diff --check
 ```
 
-The real `python3 scripts/pcg_github.py --check` command is deliberately excluded from automated local tests and must be run only by an authorized rollout operator.
+These gates verify client logic only. They are not live Composio authorization evidence.
