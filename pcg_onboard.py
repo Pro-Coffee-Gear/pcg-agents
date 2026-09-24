@@ -3,7 +3,7 @@
 pcg_onboard.py — One-command onboarding for a Pro Coffee Gear team member's box.
 
 Run this ON THE NEW MEMBER'S BOX. It:
-  1. Stores the Honcho, Notion, and read-only GitHub sync keys into this box's .env.
+  1. Stores the Honcho and Notion keys into this box's .env.
   2. Looks the person up in the Notion roster by --email.
   3. Reads their Primary (single-select) + Adjacent (multi-select) -> the profiles they should have.
   4. Creates those Hermes profiles (idempotent - skips any that already exist).
@@ -18,7 +18,7 @@ Model (post-2026-08-16 redesign):
   - The legacy 'Function' column is a fallback: first non-LT entry -> Primary; 'LT' in it -> LT member.
 
 Usage (keys come from Wes, in the personalized command):
-  GITHUB_SYNC_TOKEN=... HONCHO_API_KEY=... NOTION_API_KEY=... python3 pcg_onboard.py --email you@procoffeegear.com [--name "Your Name"]
+  HONCHO_API_KEY=... NOTION_API_KEY=... python3 pcg_onboard.py --email you@procoffeegear.com [--name "Your Name"]
   ...  --dry-run     # show what WOULD happen, create nothing
 """
 import json, os, sys, subprocess, argparse, urllib.request
@@ -82,16 +82,15 @@ def roster_row(email, key):
     return row["id"], primary, adjacent, is_lt
 
 # ---------- .env ----------
-def store_keys(honcho_key, notion_key, github_sync_token):
+def store_keys(honcho_key, notion_key):
     env_path=os.path.join(HERMES_HOME, ".env")
     existing=b""
     if os.path.exists(env_path):
         with open(env_path,"rb") as f: existing=f.read()
     text=existing.decode("utf-8","ignore")
-    lines=[l for l in text.splitlines() if not l.startswith(("HONCHO_API_KEY","NOTION_API_KEY","GITHUB_SYNC_TOKEN"))]
+    lines=[l for l in text.splitlines() if not l.startswith(("HONCHO_API_KEY","NOTION_API_KEY","GITHUB_SYNC_TOKEN","GITHUB_TOKEN","GH_TOKEN"))]
     if honcho_key: lines.append(f"HONCHO_API_KEY={honcho_key}")
     if notion_key: lines.append(f"NOTION_API_KEY={notion_key}")
-    if github_sync_token: lines.append(f"GITHUB_SYNC_TOKEN={github_sync_token}")
     with open(env_path,"wb") as f: f.write(("\n".join(lines)+"\n").encode())
     log(f"  stored keys in {env_path}")
 
@@ -521,32 +520,18 @@ def install_fleet_sync(dry):
         log("  [dry] would fetch pcg_sync.py + register cron 'pcg-fleet-sync' (every 30m)")
         return
 
-    # Prefer the read-only sync token; fall back to the onboarding token.
-    gh_token = None
-    envp = os.path.join(HERMES_HOME, ".env")
-    if os.path.exists(envp):
-        for line in open(envp, "rb").read().decode("utf-8", "ignore").splitlines():
-            for n in ("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"):
-                if line.startswith(n + "="):
-                    gh_token = gh_token or line.split("=", 1)[1].strip()
-    gh_token = gh_token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if not gh_token:
-        log("  ! no GitHub token in .env — skipping fleet-sync install")
-        return
-
-    # Fetch pcg_sync.py from the private repo (Contents API, raw accept).
-    # Canonical home is scripts/ in the repo — after install, the 30-min fleet
-    # sync itself keeps this file (and profile_sync.py) current forever.
+    # Fetch pcg_sync.py from the PUBLIC repo (raw CDN, no auth). Canonical home
+    # is scripts/ in the repo — after install, the 30-min fleet sync keeps this
+    # file (and profile_sync.py) current forever.
     os.makedirs(scripts_dir, exist_ok=True)
     req = urllib.request.Request(
-        "https://api.github.com/repos/WWWPCG/pcg-agents/contents/scripts/pcg_sync.py",
-        headers={"Authorization": f"token {gh_token}",
-                 "Accept": "application/vnd.github.raw"})
+        "https://raw.githubusercontent.com/Pro-Coffee-Gear/pcg-agents/main/scripts/pcg_sync.py",
+        headers={"User-Agent": "pcg-onboard"})
     try:
         with urllib.request.urlopen(req) as r:
             with open(sync_dest, "wb") as f:
                 f.write(r.read())
-        log("  fetched pcg_sync.py from repo")
+        log("  fetched pcg_sync.py from repo (public)")
     except Exception as e:
         log(f"  ! could not fetch pcg_sync.py ({e}) — skipping fleet-sync install")
         return
@@ -587,9 +572,8 @@ def main():
 
     honcho_key=(os.environ.get("HONCHO_API_KEY") or "").strip()
     notion_key=(os.environ.get("NOTION_API_KEY") or "").strip()
-    github_sync_token=(os.environ.get("GITHUB_SYNC_TOKEN") or "").strip()
-    if not honcho_key or not notion_key or not github_sync_token:
-        log("ERROR: GITHUB_SYNC_TOKEN, HONCHO_API_KEY, and NOTION_API_KEY must be set (they're in the command Wes gave you).")
+    if not honcho_key or not notion_key:
+        log("ERROR: HONCHO_API_KEY and NOTION_API_KEY must be set (they're in the command Wes gave you).")
         sys.exit(2)
 
     peer_name = args.name or args.email.split("@")[0].lower().replace(".","-")
@@ -598,7 +582,7 @@ def main():
 
     # 1. keys
     log("[1/7] storing keys")
-    if not args.dry_run: store_keys(honcho_key, notion_key, github_sync_token)
+    if not args.dry_run: store_keys(honcho_key, notion_key)
     else: log("  [dry] would store keys in .env")
 
     # 2. roster lookup

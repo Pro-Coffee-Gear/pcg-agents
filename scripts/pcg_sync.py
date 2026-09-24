@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 pcg_sync.py — fleet asset sync. Pulls shared skills, scripts, and plugins from the
-WWWPCG/pcg-agents private repo, scoped to THIS box's function set, and
+Pro-Coffee-Gear/pcg-agents public repo, scoped to THIS box's function set, and
 reconciles team cron jobs from jobs.yaml.
 
 Runs as a no_agent cron job (every 30m).
@@ -25,9 +25,12 @@ Job rules (jobs.yaml in repo root):
     "pcg-" are managed. Missing managed jobs are created (add-only; existing
     jobs are never edited or removed).
 
-Heartbeat: writes Last Fleet Sync back to the roster each run.
+Heartbeat: success writes Last Fleet Sync back to the roster and clears the
+Fleet Sync Error column. ANY failure leaves Last Fleet Sync STALE (staleness is
+the alarm) and records the error in Fleet Sync Error. A dead GitHub token must
+never look green.
 
-Exit 0 always. Silent unless something changed.
+Exit 0 always. Silent unless something changed or failed.
 """
 import base64
 import hashlib
@@ -35,11 +38,12 @@ import json
 import os
 import re
 import subprocess
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-OWNER, REPO = "WWWPCG", "pcg-agents"
+OWNER, REPO = "Pro-Coffee-Gear", "pcg-agents"
 HERMES_HOME = os.environ.get("HERMES_HOME", "/opt/data")
 HERMES_BIN = os.environ.get("HERMES_BIN", "/opt/hermes/bin/hermes")
 EMAIL_FILE = os.path.join(HERMES_HOME, ".pcg_member_email")
@@ -147,17 +151,19 @@ def env_key(*names):
 
 
 def gh(token, path):
-    req = urllib.request.Request(
-        f"https://api.github.com{path}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"})
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "pcg-fleet-sync"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"https://api.github.com{path}", headers=headers)
     with urllib.request.urlopen(req) as r:
         return json.loads(r.read())
 
 
 def gh_raw(token, path):
+    # Public repo: raw CDN is not API-rate-limited and needs no auth.
     req = urllib.request.Request(
-        f"https://api.github.com/repos/{OWNER}/{REPO}/contents/{path}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.raw"})
+        f"https://raw.githubusercontent.com/{OWNER}/{REPO}/main/{path}",
+        headers={"User-Agent": "pcg-fleet-sync"})
     with urllib.request.urlopen(req) as r:
         return r.read()
 
@@ -262,10 +268,13 @@ def quarantine_deleted(manifest, changes):
             continue
         try:
             gh_exists = True
+            headers = {"Accept": "application/vnd.github+json", "User-Agent": "pcg-fleet-sync"}
+            tk = env_key('GITHUB_SYNC_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN')
+            if tk:
+                headers["Authorization"] = f"Bearer {tk}"
             req = urllib.request.Request(
                 f"https://api.github.com/repos/{OWNER}/{REPO}/contents/{repo_path}",
-                headers={"Authorization": f"Bearer {env_key('GITHUB_SYNC_TOKEN','GITHUB_TOKEN','GH_TOKEN')}",
-                         "Accept": "application/vnd.github+json"})
+                headers=headers)
             urllib.request.urlopen(req)
         except urllib.error.HTTPError as e:
             gh_exists = e.code != 404
@@ -359,9 +368,38 @@ def reconcile_jobs(token, held_labels, changes):
             changes.append(f"cron job created: {name}")
 
 
-def heartbeat(pid, key):
-    notion(key, f"/pages/{pid}", "PATCH", {"properties": {
-        "Last Fleet Sync": {"date": {"start": datetime.now(timezone.utc).isoformat()}}}})
+ERROR_PROP = "Fleet Sync Error"
+
+
+def preflight_check(token):
+    """One cheap repo read before any sync work. A dead/revoked token otherwise
+    fails silently: list_tree swallows HTTP errors, every sync no-ops, and the
+    roster heartbeat still reports green. Returns None if healthy, else an
+    error string."""
+    try:
+        gh(token, f"/repos/{OWNER}/{REPO}")
+        return None
+    except urllib.error.HTTPError as e:
+        return f"github read failed: HTTP {e.code} reading {OWNER}/{REPO}"
+    except Exception as e:
+        return f"github unreachable: {type(e).__name__}: {e}"
+
+
+def report_fleet_health(pid, key, errors):
+    """Success: stamp Last Fleet Sync and clear the error column. Failure: leave
+    Last Fleet Sync STALE (staleness is the alarm) and record the error."""
+    now = datetime.now(timezone.utc).isoformat()
+    if not errors:
+        notion(key, f"/pages/{pid}", "PATCH", {"properties": {
+            "Last Fleet Sync": {"date": {"start": now}},
+            ERROR_PROP: {"rich_text": []}}})
+        return
+    summary = (f"{now[:16]}Z fleet sync FAILED ({len(errors)} error(s)): "
+               + "; ".join(str(e) for e in errors))[:1900]
+    r = notion(key, f"/pages/{pid}", "PATCH", {"properties": {
+        ERROR_PROP: {"rich_text": [{"type": "text", "text": {"content": summary}}]}}})
+    if isinstance(r, dict) and r.get("error"):
+        print(f"WARNING: could not write {ERROR_PROP} to roster (HTTP {r['error']})")
 
 
 def main():
@@ -372,7 +410,7 @@ def main():
         return 0
     token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
     notion_key = env_key("NOTION_API_KEY")
-    if not token or not notion_key:
+    if not notion_key:
         return 0
 
     row = None
@@ -382,48 +420,54 @@ def main():
         pass
     pid, fns = row if row else (None, set())
 
-    changes, conflicts = [], []
+    changes, conflicts, errors = [], [], []
     manifest = load_manifest()
     repo_paths_now = set()
 
-    try:
-        sync_dir(token, "skills/_common", os.path.join(HERMES_HOME, "skills"), changes, conflicts, manifest)
-    except Exception:
-        pass
-    for fn in sorted(fns):
-        pdir = os.path.join(HERMES_HOME, "profiles", fn)
-        if not os.path.isdir(pdir):
-            continue
+    preflight_error = preflight_check(token)
+    if preflight_error:
+        errors.append(preflight_error)
+    else:
         try:
-            sync_dir(token, f"skills/{fn}", os.path.join(pdir, "skills"), changes, conflicts, manifest)
-        except Exception:
-            pass
-    try:
-        sync_dir(token, "scripts", os.path.join(HERMES_HOME, "scripts"), changes, conflicts, manifest)
-    except Exception:
-        pass
-    try:
-        sync_plugins_and_policy(token, fns, changes, conflicts, manifest)
-    except Exception:
-        pass
+            sync_dir(token, "skills/_common", os.path.join(HERMES_HOME, "skills"), changes, conflicts, manifest)
+        except Exception as e:
+            errors.append(f"sync skills/_common: {type(e).__name__}: {e}")
+        for fn in sorted(fns):
+            pdir = os.path.join(HERMES_HOME, "profiles", fn)
+            if not os.path.isdir(pdir):
+                continue
+            try:
+                sync_dir(token, f"skills/{fn}", os.path.join(pdir, "skills"), changes, conflicts, manifest)
+            except Exception as e:
+                errors.append(f"sync skills/{fn}: {type(e).__name__}: {e}")
+        try:
+            sync_dir(token, "scripts", os.path.join(HERMES_HOME, "scripts"), changes, conflicts, manifest)
+        except Exception as e:
+            errors.append(f"sync scripts: {type(e).__name__}: {e}")
+        try:
+            sync_plugins_and_policy(token, fns, changes, conflicts, manifest)
+        except Exception as e:
+            errors.append(f"sync plugins/policy: {type(e).__name__}: {e}")
 
-    quarantine_deleted(manifest, changes)
-    save_manifest(manifest)
+        quarantine_deleted(manifest, changes)
+        save_manifest(manifest)
 
-    # held function LABELS for job scoping
-    prof_to_label = {v: k for k, v in FUNC_TO_PROFILE.items()}
-    held_labels = {prof_to_label.get(f, f) for f in fns}
-    try:
-        reconcile_jobs(token, held_labels, changes)
-    except Exception:
-        pass
+        # held function LABELS for job scoping
+        prof_to_label = {v: k for k, v in FUNC_TO_PROFILE.items()}
+        held_labels = {prof_to_label.get(f, f) for f in fns}
+        try:
+            reconcile_jobs(token, held_labels, changes)
+        except Exception as e:
+            errors.append(f"reconcile jobs: {type(e).__name__}: {e}")
 
     if pid:
         try:
-            heartbeat(pid, notion_key)
-        except Exception:
-            pass
+            report_fleet_health(pid, notion_key, errors)
+        except Exception as e:
+            print(f"WARNING: roster health report failed: {type(e).__name__}: {e}")
 
+    for e in errors:
+        print(f"ERROR: {e}")
     if changes or conflicts:
         for c in changes[:30]:
             print(c)

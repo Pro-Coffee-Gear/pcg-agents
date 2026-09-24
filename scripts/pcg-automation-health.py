@@ -116,12 +116,9 @@ def load_health_policies() -> dict[str, dict]:
             return parse_health_toml(local.read_text())
         except Exception:
             pass
-    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
-    if not token:
-        return {}
     req = urllib.request.Request(
-        "https://api.github.com/repos/WWWPCG/pcg-agents/contents/health.toml",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.raw"},
+        "https://raw.githubusercontent.com/Pro-Coffee-Gear/pcg-agents/main/health.toml",
+        headers={"User-Agent": "pcg-automation-health"},
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -134,13 +131,10 @@ def safe_restore_script(name: str, policy: dict) -> bool:
     """Restore a missing pcg-agents script only after validating path and syntax."""
     if not is_safe_repo_restore(name, policy):
         return False
-    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
-    if not token:
-        return False
     source_path = policy["source_path"]
     req = urllib.request.Request(
-        f"https://api.github.com/repos/WWWPCG/pcg-agents/contents/{source_path}",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github.raw"},
+        f"https://raw.githubusercontent.com/Pro-Coffee-Gear/pcg-agents/main/{source_path}",
+        headers={"User-Agent": "pcg-automation-health"},
     )
     tmp = SCRIPTS_DIR / f".{name}.health-restore.tmp"
     dest = SCRIPTS_DIR / name
@@ -158,12 +152,9 @@ def safe_restore_script(name: str, policy: dict) -> bool:
 
 
 def gh_probe() -> tuple[bool, str]:
-    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
-    if not token:
-        return False, "GitHub sync token missing"
     req = urllib.request.Request(
-        "https://api.github.com/repos/WWWPCG/pcg-agents",
-        headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+        "https://api.github.com/repos/Pro-Coffee-Gear/pcg-agents",
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "pcg-automation-health"},
     )
     try:
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -318,7 +309,7 @@ def title(name: str) -> dict:
 
 
 def source_url(name: str) -> str:
-    return f"https://github.com/WWWPCG/pcg-agents/blob/main/scripts/{name}"
+    return f"https://github.com/Pro-Coffee-Gear/pcg-agents/blob/main/scripts/{name}"
 
 
 def script_functions(name: str) -> list[str]:
