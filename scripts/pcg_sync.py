@@ -151,9 +151,9 @@ def env_key(*names):
 
 
 def gh(token, path):
+    # The fleet repository is public. Never attach retired/stale credentials:
+    # GitHub rejects an invalid Authorization header even when the resource is public.
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "pcg-fleet-sync"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(f"https://api.github.com{path}", headers=headers)
     with urllib.request.urlopen(req) as r:
         return json.loads(r.read())
@@ -206,22 +206,38 @@ def git_blob_sha(data):
     return hashlib.sha1(b"blob %d\0%s" % (len(data), data)).hexdigest()
 
 
-def list_tree(token, repo_dir):
-    out = []
-    try:
-        items = gh(token, f"/repos/{OWNER}/{REPO}/contents/{repo_dir}")
-    except Exception:
-        return out
-    for it in items:
-        if it["type"] == "dir":
-            out.extend(list_tree(token, it["path"]))
-        elif it["type"] == "file" and it["name"] != "README.md":
-            out.append((it["path"], it["sha"]))
-    return out
+def fetch_repo_files(token):
+    """Fetch the complete repository blob map with one API request.
+
+    Member boxes use GitHub's unauthenticated 60-request/hour allowance. A single
+    recursive tree request avoids the old per-directory plus per-file existence
+    probes that exhausted that allowance on multi-profile boxes.
+    """
+    data = gh(token, f"/repos/{OWNER}/{REPO}/git/trees/main?recursive=1")
+    if data.get("truncated"):
+        raise RuntimeError("GitHub repository tree was truncated")
+    tree = data.get("tree")
+    if not isinstance(tree, list):
+        raise RuntimeError("GitHub repository tree response is missing 'tree'")
+    return {
+        item["path"]: item["sha"]
+        for item in tree
+        if item.get("type") == "blob" and item.get("path") and item.get("sha")
+    }
 
 
-def sync_dir(token, repo_dir, local_dir, changes, conflicts, manifest):
-    files = list_tree(token, repo_dir)
+def list_tree(token, repo_dir, repo_files=None):
+    repo_files = repo_files if repo_files is not None else fetch_repo_files(token)
+    prefix = repo_dir.rstrip("/") + "/"
+    return [
+        (path, sha)
+        for path, sha in sorted(repo_files.items())
+        if path.startswith(prefix) and not path.endswith("/README.md")
+    ]
+
+
+def sync_dir(token, repo_dir, local_dir, changes, conflicts, manifest, repo_files=None):
+    files = list_tree(token, repo_dir, repo_files)
     if not files:
         return
     os.makedirs(local_dir, exist_ok=True)
@@ -246,10 +262,10 @@ def sync_dir(token, repo_dir, local_dir, changes, conflicts, manifest):
         changes.append("installed " + dest.replace(HERMES_HOME + "/", ""))
 
 
-def sync_plugins_and_policy(token, functions, changes, conflicts, manifest):
+def sync_plugins_and_policy(token, functions, changes, conflicts, manifest, repo_files=None):
     """Distribute and enable the catalog guard in every active profile home."""
     for home in plugin_destinations(HERMES_HOME, functions):
-        sync_dir(
+        args = (
             token,
             "plugins/_common",
             str(home / "plugins"),
@@ -257,30 +273,20 @@ def sync_plugins_and_policy(token, functions, changes, conflicts, manifest):
             conflicts,
             manifest,
         )
+        if repo_files is None:
+            sync_dir(*args)
+        else:
+            sync_dir(*args, repo_files=repo_files)
         reconcile_deliverable_policy(home, changes)
 
 
-def quarantine_deleted(manifest, changes):
+def quarantine_deleted(manifest, changes, repo_files):
     """Anything we installed that's no longer in the repo -> rename to .revoked."""
     for dest, repo_path in list(manifest.items()):
         if not os.path.exists(dest):
             del manifest[dest]
             continue
-        try:
-            gh_exists = True
-            headers = {"Accept": "application/vnd.github+json", "User-Agent": "pcg-fleet-sync"}
-            tk = env_key('GITHUB_SYNC_TOKEN', 'GITHUB_TOKEN', 'GH_TOKEN')
-            if tk:
-                headers["Authorization"] = f"Bearer {tk}"
-            req = urllib.request.Request(
-                f"https://api.github.com/repos/{OWNER}/{REPO}/contents/{repo_path}",
-                headers=headers)
-            urllib.request.urlopen(req)
-        except urllib.error.HTTPError as e:
-            gh_exists = e.code != 404
-        except Exception:
-            gh_exists = True  # network error: keep, don't quarantine on a flake
-        if not gh_exists:
+        if repo_path not in repo_files:
             revoked = dest + ".revoked"
             os.replace(dest, revoked)
             del manifest[dest]
@@ -290,14 +296,16 @@ def quarantine_deleted(manifest, changes):
 def load_manifest():
     if os.path.exists(MANIFEST_FILE):
         try:
-            return json.load(open(MANIFEST_FILE))
+            with open(MANIFEST_FILE) as f:
+                return json.load(f)
         except Exception:
             pass
     return {}
 
 
 def save_manifest(m):
-    json.dump(m, open(MANIFEST_FILE, "w"), indent=2)
+    with open(MANIFEST_FILE, "w") as f:
+        json.dump(m, f, indent=2)
 
 
 # ---------- jobs.yaml ----------
@@ -372,12 +380,9 @@ ERROR_PROP = "Fleet Sync Error"
 
 
 def preflight_check(token):
-    """One cheap repo read before any sync work. A dead/revoked token otherwise
-    fails silently: list_tree swallows HTTP errors, every sync no-ops, and the
-    roster heartbeat still reports green. Returns None if healthy, else an
-    error string."""
+    """Return None when the repository tree is readable, otherwise an error."""
     try:
-        gh(token, f"/repos/{OWNER}/{REPO}")
+        fetch_repo_files(token)
         return None
     except urllib.error.HTTPError as e:
         return f"github read failed: HTTP {e.code} reading {OWNER}/{REPO}"
@@ -405,10 +410,11 @@ def report_fleet_health(pid, key, errors):
 def main():
     if not os.path.exists(EMAIL_FILE):
         return 0
-    email = open(EMAIL_FILE).read().strip()
+    with open(EMAIL_FILE) as f:
+        email = f.read().strip()
     if not email:
         return 0
-    token = env_key("GITHUB_SYNC_TOKEN", "GITHUB_TOKEN", "GH_TOKEN")
+    token = None  # public repo; retired GitHub credentials are deliberately ignored
     notion_key = env_key("NOTION_API_KEY")
     if not notion_key:
         return 0
@@ -424,12 +430,18 @@ def main():
     manifest = load_manifest()
     repo_paths_now = set()
 
-    preflight_error = preflight_check(token)
-    if preflight_error:
-        errors.append(preflight_error)
-    else:
+    try:
+        repo_files = fetch_repo_files(token)
+    except urllib.error.HTTPError as e:
+        repo_files = None
+        errors.append(f"github read failed: HTTP {e.code} reading {OWNER}/{REPO}")
+    except Exception as e:
+        repo_files = None
+        errors.append(f"github unreachable: {type(e).__name__}: {e}")
+
+    if repo_files is not None:
         try:
-            sync_dir(token, "skills/_common", os.path.join(HERMES_HOME, "skills"), changes, conflicts, manifest)
+            sync_dir(token, "skills/_common", os.path.join(HERMES_HOME, "skills"), changes, conflicts, manifest, repo_files)
         except Exception as e:
             errors.append(f"sync skills/_common: {type(e).__name__}: {e}")
         for fn in sorted(fns):
@@ -437,19 +449,19 @@ def main():
             if not os.path.isdir(pdir):
                 continue
             try:
-                sync_dir(token, f"skills/{fn}", os.path.join(pdir, "skills"), changes, conflicts, manifest)
+                sync_dir(token, f"skills/{fn}", os.path.join(pdir, "skills"), changes, conflicts, manifest, repo_files)
             except Exception as e:
                 errors.append(f"sync skills/{fn}: {type(e).__name__}: {e}")
         try:
-            sync_dir(token, "scripts", os.path.join(HERMES_HOME, "scripts"), changes, conflicts, manifest)
+            sync_dir(token, "scripts", os.path.join(HERMES_HOME, "scripts"), changes, conflicts, manifest, repo_files)
         except Exception as e:
             errors.append(f"sync scripts: {type(e).__name__}: {e}")
         try:
-            sync_plugins_and_policy(token, fns, changes, conflicts, manifest)
+            sync_plugins_and_policy(token, fns, changes, conflicts, manifest, repo_files)
         except Exception as e:
             errors.append(f"sync plugins/policy: {type(e).__name__}: {e}")
 
-        quarantine_deleted(manifest, changes)
+        quarantine_deleted(manifest, changes, repo_files)
         save_manifest(manifest)
 
         # held function LABELS for job scoping

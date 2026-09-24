@@ -89,7 +89,7 @@ def policy_for(name: str, policies: dict[str, dict[str, Any]], fallback_owner: s
 
 
 def is_safe_repo_restore(name: str, policy: dict[str, Any]) -> bool:
-    if policy.get("source_repo") != "https://github.com/WWWPCG/pcg-agents":
+    if policy.get("source_repo") != "https://github.com/Pro-Coffee-Gear/pcg-agents":
         return False
     path = str(policy.get("source_path", ""))
     if not path or path.startswith("/") or ".." in path.split("/"):

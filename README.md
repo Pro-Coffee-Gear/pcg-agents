@@ -21,7 +21,7 @@ Onboarding + verification scripts for the Pro Coffee Gear agent fleet.
 Keys are supplied at runtime (never stored here):
 
 ```bash
-curl -sL https://raw.githubusercontent.com/WWWPCG/pcg-agents/main/pcg_onboard.py -o pcg_onboard.py && \
+curl -sL https://raw.githubusercontent.com/Pro-Coffee-Gear/pcg-agents/main/pcg_onboard.py -o pcg_onboard.py && \
 HONCHO_API_KEY=<key> NOTION_API_KEY=<key> \
 python3 pcg_onboard.py --email you@procoffeegear.com
 ```

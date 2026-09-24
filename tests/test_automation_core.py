@@ -298,6 +298,94 @@ class FleetSyncTests(unittest.TestCase):
         self.assertTrue(module.is_repo_managed("pcg_sync.py"))
         self.assertFalse(module.is_repo_managed("front_model_scan.py"))
 
+    def test_fetch_repo_files_uses_one_recursive_tree(self):
+        module = self.load_module()
+        calls = []
+
+        def fake_gh(token, path):
+            calls.append((token, path))
+            return {
+                "truncated": False,
+                "tree": [
+                    {"type": "blob", "path": "scripts/pcg_sync.py", "sha": "abc"},
+                    {"type": "tree", "path": "scripts", "sha": "def"},
+                    {"type": "blob", "path": "jobs.yaml", "sha": "ghi"},
+                ],
+            }
+
+        module.gh = fake_gh
+        self.assertEqual(
+            {"scripts/pcg_sync.py": "abc", "jobs.yaml": "ghi"},
+            module.fetch_repo_files(None),
+        )
+        self.assertEqual(
+            [(None, "/repos/Pro-Coffee-Gear/pcg-agents/git/trees/main?recursive=1")],
+            calls,
+        )
+
+    def test_public_repo_reads_never_send_a_stale_token(self):
+        module = self.load_module()
+        requests = []
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{}'
+
+        def fake_urlopen(request):
+            requests.append(request)
+            return Response()
+
+        module.urllib.request.urlopen = fake_urlopen
+        module.gh("revoked-token", "/repos/Pro-Coffee-Gear/pcg-agents")
+        headers = {key.lower(): value for key, value in requests[0].header_items()}
+        self.assertNotIn("authorization", headers)
+
+    def test_truncated_repo_tree_fails_closed(self):
+        module = self.load_module()
+        module.gh = lambda token, path: {"truncated": True, "tree": []}
+        with self.assertRaisesRegex(RuntimeError, "truncated"):
+            module.fetch_repo_files(None)
+
+    def test_main_fetches_tree_once_and_records_failure_without_green_heartbeat(self):
+        module = self.load_module()
+        tempfile = __import__("tempfile")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            email_file = root / ".pcg_member_email"
+            email_file.write_text("audit@example.com\n")
+            module.HERMES_HOME = str(root)
+            module.EMAIL_FILE = str(email_file)
+            module.MANIFEST_FILE = str(root / ".pcg_fleet_manifest.json")
+            module.env_key = lambda *names: "notion-key" if "NOTION_API_KEY" in names else None
+            module.roster_row = lambda email, key: ("page-id", set())
+            module.reconcile_jobs = lambda *args, **kwargs: None
+            module.reconcile_deliverable_policy = lambda *args, **kwargs: None
+            fetch_calls = []
+
+            def fail_fetch(token):
+                fetch_calls.append(token)
+                raise RuntimeError("rate limited")
+
+            module.fetch_repo_files = fail_fetch
+            writes = []
+            module.notion = lambda key, path, method="GET", body=None: writes.append(body) or {}
+            contextlib = __import__("contextlib")
+            io = __import__("io")
+            with contextlib.redirect_stdout(io.StringIO()):
+                module.main()
+
+            self.assertEqual([None], fetch_calls)
+            properties = writes[-1]["properties"]
+            self.assertNotIn("Last Fleet Sync", properties)
+            error_text = properties[module.ERROR_PROP]["rich_text"][0]["text"]["content"]
+            self.assertIn("rate limited", error_text)
+
     def test_plugin_destinations_cover_default_and_held_profiles(self):
         module = self.load_module()
         root = Path("/srv/member")
@@ -452,8 +540,8 @@ test_command = "python3 -m unittest"
         self.assertEqual("owner@example.com", policy["owner_email"])
 
     def test_safe_restore_accepts_only_expected_repo_path(self):
-        good = {"source_repo": "https://github.com/WWWPCG/pcg-agents", "source_path": "scripts/a.py"}
-        bad = {"source_repo": "https://github.com/WWWPCG/pcg-agents", "source_path": "../secrets"}
+        good = {"source_repo": "https://github.com/Pro-Coffee-Gear/pcg-agents", "source_path": "scripts/a.py"}
+        bad = {"source_repo": "https://github.com/Pro-Coffee-Gear/pcg-agents", "source_path": "../secrets"}
         self.assertTrue(is_safe_repo_restore("a.py", good))
         self.assertFalse(is_safe_repo_restore("a.py", bad))
 
@@ -469,7 +557,7 @@ test_command = "python3 -m unittest"
                 "Incident Status": {"type": "select", "select": {"name": "Open"}},
                 "Failure Detail": {"type": "rich_text", "rich_text": [{"plain_text": "boom"}]},
                 "Owner Email": {"type": "email", "email": "wes@procoffeegear.com"},
-                "Source Repository": {"type": "url", "url": "https://github.com/WWWPCG/pcg-agents"},
+                "Source Repository": {"type": "url", "url": "https://github.com/Pro-Coffee-Gear/pcg-agents"},
                 "Fix PR": {"type": "url", "url": None},
             },
         }
@@ -491,7 +579,7 @@ test_command = "python3 -m unittest"
         self.assertEqual([], select_owner_notifications(rows, "wes@procoffeegear.com", {"pr:https://github/pr/1"}))
 
     def test_groups_same_repair_across_instances(self):
-        base = {"name": "a.py", "failure_detail": "SyntaxError line 4", "source_repo": "https://github.com/WWWPCG/pcg-agents", "health": "Failing", "repair_policy": "repair-pr", "incident_status": "Open", "fix_pr": ""}
+        base = {"name": "a.py", "failure_detail": "SyntaxError line 4", "source_repo": "https://github.com/Pro-Coffee-Gear/pcg-agents", "health": "Failing", "repair_policy": "repair-pr", "incident_status": "Open", "fix_pr": ""}
         grouped = group_repair_candidates([
             {**base, "row_id": "r1", "instance": "box-a", "incident_key": "k1"},
             {**base, "row_id": "r2", "instance": "box-b", "incident_key": "k2"},
