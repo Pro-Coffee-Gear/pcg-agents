@@ -35,22 +35,29 @@ def main() -> int:
     except Exception:
         seen = set()
     rows, cursor = [], None
-    while True:
-        body = {"page_size": 100}
-        if cursor:
-            body["start_cursor"] = cursor
-        req = urllib.request.Request(
-            f"https://api.notion.com/v1/data_sources/{DS_ID}/query", method="POST",
-            data=json.dumps(body).encode(),
-            headers={"Authorization": f"Bearer {env_key('NOTION_API_KEY')}",
-                     "Notion-Version": "2025-09-03", "Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=45) as r:
-            page = json.load(r)
-        rows.extend(script_row_to_incident(x) for x in page.get("results", []))
-        if not page.get("has_more"):
-            break
-        cursor = page.get("next_cursor")
+    try:
+        while True:
+            body = {"page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            req = urllib.request.Request(
+                f"https://api.notion.com/v1/data_sources/{DS_ID}/query", method="POST",
+                data=json.dumps(body).encode(),
+                headers={"Authorization": f"Bearer {env_key('NOTION_API_KEY')}",
+                         "Notion-Version": "2025-09-03", "Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=45) as r:
+                page = json.load(r)
+            rows.extend(script_row_to_incident(x) for x in page.get("results", []))
+            if not page.get("has_more"):
+                break
+            cursor = page.get("next_cursor")
+    except Exception:
+        # A failed Notion read (stale/revoked token, transient HTTP error, or a
+        # parse error) must never crash this job into last_status=error. Exit
+        # silently and retry on the next cycle; the health monitor keeps watching
+        # the underlying script, not this reminder helper.
+        return 0
     selected = select_owner_notifications(rows, owner_email(), seen)
     if not selected:
         return 0
