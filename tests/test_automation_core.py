@@ -1,7 +1,9 @@
 import importlib.util
 import sys
 import unittest
+import urllib.error
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts" if (ROOT / "scripts").exists() else Path("/opt/data/scripts")
@@ -597,6 +599,33 @@ test_command = "python3 -m unittest"
         ]
         selected = select_repair_candidates(rows)
         self.assertEqual(["1"], [r["row_id"] for r in selected])
+
+
+class RepairNotifyTests(unittest.TestCase):
+    def load_module(self):
+        path = SCRIPTS / "pcg-repair-notify.py"
+        spec = importlib.util.spec_from_file_location("pcg_repair_notify", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_notify_returns_cleanly_when_notion_query_fails(self):
+        """A stale/revoked Notion token (or any query error) must not crash the
+        notification job into last_status=error. It should exit silently so the
+        health monitor never flags a spurious failure."""
+        module = self.load_module()
+        with __import__("tempfile").TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module.STATE_FILE = root / "state.json"  # missing -> seen=set()
+            module.EMAIL_FILE = root / ".pcg_member_email"
+            (root / ".pcg_member_email").write_text("tasha@procoffeegear.com\n")
+            module.env_key = lambda name: ""  # empty/stale token on a member box
+
+            def boom(req, timeout=None):
+                raise urllib.error.HTTPError(req.full_url, 401, "Unauthorized", {}, None)
+
+            with mock.patch.object(module.urllib.request, "urlopen", boom):
+                self.assertEqual(0, module.main())
 
 
 if __name__ == "__main__":
