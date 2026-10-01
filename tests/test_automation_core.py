@@ -599,5 +599,90 @@ test_command = "python3 -m unittest"
         self.assertEqual(["1"], [r["row_id"] for r in selected])
 
 
+class RepairNotifyTests(unittest.TestCase):
+    def load_module(self):
+        os = __import__("os")
+        old_home = os.environ.get("HERMES_HOME")
+        os.environ["HERMES_HOME"] = "/nonexistent-repair-test-home"
+        try:
+            path = SCRIPTS / "pcg-repair-notify.py"
+            spec = importlib.util.spec_from_file_location("pcg_repair_notify", path)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        finally:
+            if old_home is None:
+                del os.environ["HERMES_HOME"]
+            else:
+                os.environ["HERMES_HOME"] = old_home
+        return module
+
+    @staticmethod
+    def http_error_500():
+        urllib_error = __import__("urllib.error", fromlist=["HTTPError"])
+        return urllib_error.HTTPError(
+            "https://api.notion.com/v1/data_sources/ds/query", 500, "Internal Server Error",
+            hdrs=None, fp=None,
+        )
+
+    @staticmethod
+    def empty_page():
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b'{"results": [], "has_more": false}'
+
+        return Response()
+
+    def test_transient_notion_500_is_retried_and_run_succeeds(self):
+        module = self.load_module()
+        module.env_key = lambda name: "notion-key"
+        calls = []
+
+        def flaky_urlopen(request, *args, **kwargs):
+            calls.append(request)
+            if len(calls) == 1:
+                raise self.http_error_500()
+            return self.empty_page()
+
+        module.urllib.request.urlopen = flaky_urlopen
+        time = __import__("time")
+        old_sleep = time.sleep
+        time.sleep = lambda seconds: None
+        try:
+            with __import__("tempfile").TemporaryDirectory() as tmp:
+                module.STATE_FILE = Path(tmp) / "state.json"
+                self.assertEqual(0, module.main())
+        finally:
+            time.sleep = old_sleep
+        self.assertEqual(2, len(calls))
+
+    def test_persistent_notion_500_still_fails_after_retries(self):
+        module = self.load_module()
+        module.env_key = lambda name: "notion-key"
+        calls = []
+
+        def down_urlopen(request, *args, **kwargs):
+            calls.append(request)
+            raise self.http_error_500()
+
+        module.urllib.request.urlopen = down_urlopen
+        time = __import__("time")
+        old_sleep = time.sleep
+        time.sleep = lambda seconds: None
+        try:
+            with __import__("tempfile").TemporaryDirectory() as tmp:
+                module.STATE_FILE = Path(tmp) / "state.json"
+                with self.assertRaises(Exception):
+                    module.main()
+        finally:
+            time.sleep = old_sleep
+        self.assertGreaterEqual(len(calls), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
